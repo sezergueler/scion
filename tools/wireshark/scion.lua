@@ -71,6 +71,7 @@ function scion_proto.dissector(buffer,pinfo,tree)
 
 	-- add tree
 	pinfo.cols.protocol = "SCION"
+	pinfo.cols.info = "  " .. ptype
 	scion_tree = tree:add(scion_proto,buffer(0, hdr_len),"SCION Protocol")
 	local sch_field = ProtoField.string("sch","Common header")
 	local sch_tree = scion_tree:add(sch_field,buffer(0,CMN_HDR_LEN),"Common header" .. ", Type:" .. ptype .. ", " ..path_direction)
