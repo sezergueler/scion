@@ -2,7 +2,7 @@ Wireshark plug-in
 ====
 This wireshark plugin parses SCION packets and shows SCION parameters of the packets.
 It supports, SCION packets on Ethernet frame and encapsulated SCION packet using IP and UDP.
-Currently, it hooks ethertype=0x3333, IP.proto=40 and UDP destination ports from 33300 to 33399.
+
 
 Install
 -----------
