@@ -378,6 +378,7 @@ class SCIONElement(object):
         self._send_reply(dst, port, TRCReply.from_values(trc))
         logging.info("TRC for %sv%s sent to %s:%s", isd, ver, dst, port)
 
+
     # def process_cert_chain_rep(self, cert_chain_rep, meta):
     #     """
     #     Process the Certificate chain reply.
