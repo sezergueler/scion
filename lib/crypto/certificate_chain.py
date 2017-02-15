@@ -65,8 +65,10 @@ def verify_sig_chain_trc(msg, sig, subject, chain, trc, trc_ver):
             logging.error("Signer's public key has not been found.")
             return False
         verifying_key = trc.core_ases[subject].subject_sig_key_raw
-    return verify(msg, sig, verifying_key)
-
+    ver = verify(msg, sig, verifying_key)
+    if not ver:
+        logging.error("Core AS signature verification failed")
+    return ver
 
 class CertificateChain(object):
     """

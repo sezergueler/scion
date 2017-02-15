@@ -26,6 +26,7 @@ from collections import defaultdict
 
 # SCION
 from lib.config import Config
+from lib.crypto.certificate_chain import verify_sig_chain_trc
 from lib.crypto.hash_tree import ConnectedHashTree
 from lib.errors import SCIONParseError
 from lib.defines import (
@@ -55,16 +56,18 @@ from lib.msg_meta import (
     TCPMetadata,
     UDPMetadata,
 )
+from lib.packet.cert_mgmt import CertChainRequest, TRCRequest, TRCReply
 from lib.packet.host_addr import HostAddrNone
 from lib.packet.packet_base import PayloadRaw
 from lib.packet.path import SCIONPath
+from lib.packet.pcb import PathSegment
 from lib.packet.scion import (
     SCIONBasePacket,
     SCIONL4Packet,
     build_base_hdrs,
 )
 from lib.packet.svc import SVC_TO_SERVICE, SERVICE_TO_SVC_A
-from lib.packet.scion_addr import SCIONAddr
+from lib.packet.scion_addr import ISD_AS, SCIONAddr
 from lib.packet.scion_udp import SCIONUDPHeader
 from lib.packet.scmp.errors import (
     SCMPBadDstType,
@@ -82,11 +85,13 @@ from lib.packet.scmp.errors import (
 )
 from lib.packet.scmp.types import SCMPClass
 from lib.packet.scmp.util import scmp_type_name
+from lib.packet.svc import SVCType
+from lib.requests import RequestHandler
 from lib.socket import ReliableSocket, SocketMgr, TCPSocketWrapper
 from lib.tcp.socket import SCIONTCPSocket, SockOpt
 from lib.thread import thread_safety_net, kill_self
 from lib.trust_store import TrustStore
-from lib.types import AddrType, L4Proto, PayloadClass
+from lib.types import AddrType, L4Proto, PathMgmtType as PMT, PayloadClass
 from lib.topology import Topology
 from lib.util import hex_str
 
@@ -155,6 +160,11 @@ class SCIONElement(object):
             self.DefaultMeta = TCPMetadata
         else:
             self.DefaultMeta = UDPMetadata
+        self.paths_missing_trcs_certs_map = {}
+        self.trc_requests = RequestHandler.start(
+            "TRC Requests", self._check_trc, self._fetch_trc, self._reply_trc,
+        )
+#        self.paths_to_verify = deque()
 
     def _setup_sockets(self, init):
         """
@@ -230,6 +240,201 @@ class SCIONElement(object):
                 handler(msg, meta)
         except SCIONBaseError:
             log_exception("Error handling message:\n%s" % msg)
+
+    def verify_path(self, paths, meta):
+        """
+        When a pcb or path segment is received, this function is called to
+        find missing TRCs and certs and request them.
+
+        :param msg: pcb or pathSegments
+        """
+        if isinstance(paths, PathSegment):
+            # Get all trcs' and certificates' versions used in these paths
+            trcs, certs = paths.get_trcs_certs()
+            # Find missing TRCs and certificates
+            self.paths_missing_trcs_certs_map[paths] = \
+                self._get_missing_trcs_certs(trcs, certs)
+            # If all necessary TRCs/certs available, try to verify
+            if not self.paths_missing_trcs_certs_map[paths]:
+                asm = paths.asm(-1)
+                cert_ia = asm.isd_as()
+                trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
+                return verify_sig_chain_trc(
+                    paths.sig_pack(), asm.p.sig, str(cert_ia), asm.chain(), trc,
+                    asm.p.trcVer)
+            else:
+                for trcs in self.paths_missing_trcs_certs_map[paths][0]:
+                    trc_req = TRCRequest.from_values(trcs[0], trcs[1])
+                    logging.info("Requesting %sv%s TRC", trcs[0], trcs[1])
+                    self.send_meta(trc_req, meta)
+                for certs in self.paths_missing_trcs_certs_map[paths][1]:
+                    cert_req = CertChainRequest.from_values(ISD_AS(certs[0]),
+                                                            certs[1])
+                    logging.info("Requesting %sv%s CERTCHAIN", certs[0],
+                                 certs[1])
+                    self.send_meta(cert_req, meta)
+        # TODO(Sezer): Make it work for Scion elements which are not beacon
+        # servers
+        else:  # if isinstance(paths, PathRecordsReply):
+            trcs = {}
+            certs = {}
+            for type_, pcb in paths.iter_pcbs():
+                # Get all trcs and certificates used in this pcb
+                trcs_, certs_ = pcb.get_trcs_certs()
+                # TODO(Sezer) This is not correct yet, trcs_ may overwrite
+                # segment entries in trcs
+                trcs.update(trcs_)
+                certs.update(certs_)
+            # Find missing TRCs and certificates
+            self.paths_missing_trcs_certs_map[paths] = \
+                self._get_missing_trcs_certs(trcs, certs)
+
+    def _get_missing_trcs_certs(self, trc_versions, cert_versions):
+        """
+        Check which intermediate trcs are missing and which cetificates are
+        missing and return their versions.
+
+        :returns: the missing TRCs versions
+        :rtype dict
+        """
+        missing_trcs = []
+        for isd in trc_versions.keys():
+            # If not local TRC, only request this version
+            if isd is not self.topology.isd_as[0]:
+                missing_trcs.append((isd, trc_versions[isd]))
+                continue
+            # Local TRC
+            highest_ver_TRC = self.trust_store.get_trc(int(isd))
+            lower_ver = 0
+            if highest_ver_TRC is not None:
+                lower_ver = highest_ver_TRC.version+1
+            for ver in range(lower_ver, trc_versions[isd]):
+                missing_trcs.append((isd, ver))
+        missing_certs = []
+        for isd_as in cert_versions.keys():
+            if self.trust_store.get_cert(isd_as, cert_versions[isd_as]) is None:
+                missing_certs.append((isd_as, cert_versions[isd_as]))
+        return (missing_trcs, missing_certs)
+
+    def process_trc_rep(self, rep, meta):
+        """
+        Process the TRC reply.
+
+        :param rep: TRC reply.
+        :type rep: TRCReply.
+        """
+        logging.info("TRC reply received for %s", rep.trc.get_isd_ver())
+        self.trust_store.add_trc(rep.trc)
+        isd_, ver = rep.trc.get_isd_ver()
+        # Remove received TRC from map
+        for msg in self.paths_missing_trcs_certs_map:
+            logging.error("MSG")
+            logging.error(msg)
+            if (isd_, ver) in self.paths_missing_trcs_certs_map[msg]:
+                self.paths_missing_trcs_certs_map[msg].remove((isd_, ver))
+            # If all required trcs and certs are received
+            if not self.paths_missing_trcs_certs_map[msg]:
+                self.paths_to_verify.append(msg)
+
+    def process_trc_request(self, req, meta):
+        """Process a TRC request."""
+        assert isinstance(req, TRCRequest)
+        key = req.isd_as()[0], req.p.version
+        logging.info("TRC request received for %sv%s", *key)
+        local = meta.ia == self.addr.isd_as
+        if not self._check_trc(key) and not local:
+            logging.warning(
+                "Dropping TRC request from %s for %sv%s: "
+                "TRC not found && requester is not local)",
+                meta.get_addr(), *key)
+        self.trc_requests.put((key, (meta, req.isd_as()[1]),))
+
+    def _check_trc(self, key):
+        trc = self.trust_store.get_trc(*key)
+        if trc:
+            return True
+        logging.debug('TRC not found for %sv%s', *key)
+        return False
+
+    def _fetch_trc(self, key, info):
+        isd, ver = key
+        isd_as = ISD_AS.from_values(isd, info[2])
+        trc_req = TRCRequest.from_values(isd_as, ver)
+        req_pkt = self._build_packet(SVCType.CS_A, payload=trc_req)
+        next_hop, port = self._get_next_hop(isd_as, True, False, True)
+        if next_hop:
+            self.send(req_pkt, next_hop, port)
+            logging.info("TRC request sent for %sv%s.", *key)
+        else:
+            logging.warning("TRC request not sent for %sv%s: "
+                            "no destination found.", *key)
+
+    def _reply_trc(self, key, info):
+        isd, ver = key
+        meta = info[0]
+        dst = meta.get_addr()
+        port = meta.port
+        trc = self.trust_store.get_trc(isd, ver)
+        self._send_reply(dst, port, TRCReply.from_values(trc))
+        logging.info("TRC for %sv%s sent to %s:%s", isd, ver, dst, port)
+
+    # def process_cert_chain_rep(self, cert_chain_rep, meta):
+    #     """
+    #     Process the Certificate chain reply.
+    #
+    #     :param rep: Certificate chain reply.
+    #     :type rep: CertChainRep.
+    #     """
+    #     logging.info("Certificate reply received for %s",
+    #                  cert_chain_rep.chain.get_leaf_isd_as_ver)
+    #     self.trust_store.add_cert(cert_chain_rep.chain)
+    #     # Remove received cert from map
+    #     isd_as, ver = cert_chain_rep.chain.get_leaf_isd_as_ver()
+    #     for msg in self.paths_missing_trcs_certs_map:
+    #         if (isd_as, ver) in self.paths_missing_trcs_certs_map[msg]:
+    #             self.paths_missing_trcs_certs_map[msg].remove((isd_as, ver))
+    #         # If all required trcs and certs are received
+    #         if not self.paths_missing_trcs_certs_map[msg]:
+    #             self.paths_to_verify.append(msg)
+    #
+    # def _process_paths_to_verify_queue(self):
+    #     """
+    #     Iterate over the paths_to_verify queue and try to verify them.
+    #     """
+    #     for _ in range(len(self.paths_to_verify)):
+    #         msg = self.paths_to_verify.popleft()
+    #         self._try_to_verify_msg(msg, quiet=True)
+    #
+    # def _try_to_verify_msg(self, msg, quiet=False):
+    #     """
+    #     Try to verify a pcb/path.
+    #     """
+    #     assert isinstance(msg, PathSegment)
+    #     asm = msg.asm(-1)
+    #     if self._check_trc(asm.isd_as(), asm.p.trcVer):
+    #         if self._verify_msg(msg):
+    #             # self.verified_msgs.append(msg)
+    #             self._handle_verified_msg(msg)
+    #         else:
+    #             logging.warning("Invalid beacon. %s", msg)
+    #     else:
+    #         if not quiet:
+    #             logging.warning("Certificate(s) or TRC missing for msg: %s",
+    #                             msg.short_desc())
+    #         self.unverified_msgs.append(msg)
+    #
+    # def _verify_msg(self, msg):
+    #     """
+    #     Once the necessary certificate and TRC files have been found, verify the
+    #     message.
+    #     """
+    #     assert isinstance(msg, PathSegment)
+    #     asm = msg.asm(-1)
+    #     cert_ia = asm.isd_as()
+    #     trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
+    #     return verify_sig_chain_trc(
+    #         msg.sig_pack(), asm.p.sig, str(cert_ia), asm.chain(), trc,
+    #         asm.p.trcVer)
 
     def _get_handler(self, pkt):
         # FIXME(PSz): needed only by python router.

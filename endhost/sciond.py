@@ -141,6 +141,8 @@ class SCIONDaemon(SCIONElement):
         """
         Handle path reply from local path server.
         """
+        logging.error("PATH REPLY:")
+        logging.error(path_reply)
         added = set()
         map_ = {
             PST.UP: self._handle_up_seg,

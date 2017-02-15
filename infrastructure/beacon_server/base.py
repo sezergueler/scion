@@ -142,6 +142,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             PayloadClass.CERT: {
                 CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_rep,
                 CertMgmtType.TRC_REPLY: self.process_trc_rep,
+                CertMgmtType.TRC_REQ: self.process_trc_request,
             },
             PayloadClass.PATH: {
                 PMT.IFSTATE_REQ: self._handle_ifstate_request,
@@ -251,12 +252,17 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             return
         self.incoming_pcbs.append(pcb)
         meta.close()
+        if self.verify_path(pcb, meta):
+            self._continue_path_processing(pcb, meta)
+
+    def _continue_path_processing(self, pcb, meta):
         entry_name = "%s-%s" % (pcb.get_hops_hash(hex=True), time.time())
         try:
             self.pcb_cache.store(entry_name, pcb.copy().pack())
         except ZkNoConnection:
             logging.error("Unable to store PCB in shared cache: "
                           "no connection to ZK")
+        self._handle_verified_beacon(pcb)
 
     def handle_ext(self, pcb):
         """
@@ -443,7 +449,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             start = time.time()
             try:
                 self.process_pcb_queue()
-                self.handle_unverified_beacons()
+                #self.handle_unverified_beacons()
                 self.zk.wait_connected()
                 self.pcb_cache.process()
                 self.revobjs_cache.process()
@@ -489,25 +495,25 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                 if not ifstate.is_active():
                     ifstate.reset()
 
-    def _try_to_verify_beacon(self, pcb, quiet=False):
-        """
-        Try to verify a beacon.
-
-        :param pcb: path segment to verify.
-        :type pcb: PathSegment
-        """
-        assert isinstance(pcb, PathSegment)
-        asm = pcb.asm(-1)
-        if self._check_trc(asm.isd_as(), asm.p.trcVer):
-            if self._verify_beacon(pcb):
-                self._handle_verified_beacon(pcb)
-            else:
-                logging.warning("Invalid beacon. %s", pcb)
-        else:
-            if not quiet:
-                logging.warning("Certificate(s) or TRC missing for pcb: %s",
-                                pcb.short_desc())
-            self.unverified_beacons.append(pcb)
+    # def _try_to_verify_beacon(self, pcb, quiet=False):
+    #     """
+    #     Try to verify a beacon.
+    #
+    #     :param pcb: path segment to verify.
+    #     :type pcb: PathSegment
+    #     """
+    #     assert isinstance(pcb, PathSegment)
+    #     asm = pcb.asm(-1)
+    #     if self._check_trc(asm.isd_as(), asm.p.trcVer):
+    #         if self._verify_beacon(pcb):
+    #             self._handle_verified_beacon(pcb)
+    #         else:
+    #             logging.warning("Invalid beacon. %s", pcb)
+    #     else:
+    #         if not quiet:
+    #             logging.warning("Certificate(s) or TRC missing for pcb: %s",
+    #                             pcb.short_desc())
+    #         self.unverified_beacons.append(pcb)
 
     @abstractmethod
     def _check_trc(self, isd_as, trc_ver):
@@ -554,21 +560,21 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                 return None
         return trc
 
-    def _verify_beacon(self, pcb):
-        """
-        Once the necessary certificate and TRC files have been found, verify the
-        beacons.
-
-        :param pcb: path segment to verify.
-        :type pcb: PathSegment
-        """
-        assert isinstance(pcb, PathSegment)
-        asm = pcb.asm(-1)
-        cert_ia = asm.isd_as()
-        trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
-        return verify_sig_chain_trc(
-            pcb.sig_pack(), asm.p.sig, str(cert_ia), asm.chain(), trc,
-            asm.p.trcVer)
+    # def _verify_beacon(self, pcb):
+    #     """
+    #     Once the necessary certificate and TRC files have been found, verify the
+    #     beacons.
+    #
+    #     :param pcb: path segment to verify.
+    #     :type pcb: PathSegment
+    #     """
+    #     assert isinstance(pcb, PathSegment)
+    #     asm = pcb.asm(-1)
+    #     cert_ia = asm.isd_as()
+    #     trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
+    #     return verify_sig_chain_trc(
+    #         pcb.sig_pack(), asm.p.sig, str(cert_ia), asm.chain(), trc,
+    #         asm.p.trcVer)
 
     @abstractmethod
     def _handle_verified_beacon(self, pcb):
@@ -587,27 +593,27 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         """
         raise NotImplementedError
 
-    def process_trc_rep(self, rep, meta):
-        """
-        Process the TRC reply.
+    # def process_trc_rep(self, rep, meta):
+    #     """
+    #     Process the TRC reply.
+    #
+    #     :param rep: TRC reply.
+    #     :type rep: TRCReply
+    #     """
+    #     logging.info("TRC reply received for %s", rep.trc.get_isd_ver())
+    #     self.trust_store.add_trc(rep.trc)
+    #
+    #     rep_key = rep.trc.get_isd_ver()
+    #     if rep_key in self.trc_requests:
+    #         del self.trc_requests[rep_key]
 
-        :param rep: TRC reply.
-        :type rep: TRCReply
-        """
-        logging.info("TRC reply received for %s", rep.trc.get_isd_ver())
-        self.trust_store.add_trc(rep.trc)
-
-        rep_key = rep.trc.get_isd_ver()
-        if rep_key in self.trc_requests:
-            del self.trc_requests[rep_key]
-
-    def handle_unverified_beacons(self):
-        """
-        Handle beacons which are waiting to be verified.
-        """
-        for _ in range(len(self.unverified_beacons)):
-            pcb = self.unverified_beacons.popleft()
-            self._try_to_verify_beacon(pcb, quiet=True)
+    # def handle_unverified_beacons(self):
+    #     """
+    #     Handle beacons which are waiting to be verified.
+    #     """
+    #     for _ in range(len(self.unverified_beacons)):
+    #         pcb = self.unverified_beacons.popleft()
+    #         self._try_to_verify_beacon(pcb, quiet=True)
 
     def process_rev_objects(self, rev_infos):
         """

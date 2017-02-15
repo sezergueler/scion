@@ -134,7 +134,7 @@ class CoreBeaconServer(BeaconServer):
             if not self._filter_pcb(pcb):
                 count += 1
                 continue
-            self._try_to_verify_beacon(pcb)
+            #self._try_to_verify_beacon(pcb)
             self.handle_ext(pcb)
         if count:
             logging.debug("Dropped %d looping Core Segment PCBs", count)

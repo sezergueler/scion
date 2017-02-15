@@ -37,6 +37,7 @@ from lib.sibra.state.state import SibraState
 from lib.sibra.util import BWSnapshot
 from lib.thread import thread_safety_net
 from lib.types import (
+    CertMgmtType,
     ExtensionClass,
     PathMgmtType as PMT,
     PathSegmentType as PST,
@@ -87,6 +88,7 @@ class SibraServerBase(SCIONElement):
         self.CTRL_PLD_CLASS_MAP = {
             PayloadClass.PATH: {PMT.REG: self.handle_path_reg},
             PayloadClass.SIBRA: {None: self.handle_sibra_pkt},
+            CertMgmtType.TRC_REQ: self.process_trc_request,
         }
         self._find_links()
         zkid = ZkID.from_values(self.addr.isd_as, self.id,

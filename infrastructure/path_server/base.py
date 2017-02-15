@@ -308,6 +308,8 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
             del self.pending_req[key]
 
     def handle_path_segment_record(self, seg_recs, meta):
+        logging.error("SEG RECS:")
+        logging.error(seg_recs)
         meta.close()  # FIXME(PSz): validate before
         params = self._dispatch_params(seg_recs, meta)
         added = set()

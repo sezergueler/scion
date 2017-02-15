@@ -82,6 +82,7 @@ from lib.socket import UDPSocket
 from lib.thread import thread_safety_net
 from lib.types import (
     AddrType,
+    CertMgmtType,
     ExtHopByHopType,
     ExtensionClass,
     PathMgmtType as PMT,
@@ -137,6 +138,7 @@ class Router(SCIONElement):
             PayloadClass.IFID: {None: self.process_ifid_request},
             PayloadClass.PATH: defaultdict(
                 lambda: self.process_path_mgmt_packet),
+            CertMgmtType.TRC_REQ: self.process_trc_request,
         }
         self.SCMP_PLD_CLASS_MAP = {
             SCMPClass.PATH: {SCMPPathClass.REVOKED_IF: self.process_revocation},
