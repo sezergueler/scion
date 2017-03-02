@@ -28,6 +28,7 @@ from external.expiring_dict import ExpiringDict
 
 # SCION
 from infrastructure.scion_elem import SCIONElement
+from lib.crypto.certificate_chain import verify_sig_chain_trc
 from lib.crypto.hash_tree import ConnectedHashTree
 from lib.defines import (
     HASHTREE_EPOCH_TIME,
@@ -41,7 +42,12 @@ from lib.packet.svc import SVCType
 from lib.path_db import DBResult, PathSegmentDB
 from lib.rev_cache import RevCache
 from lib.thread import thread_safety_net
-from lib.types import PathMgmtType as PMT, PathSegmentType as PST, PayloadClass
+from lib.types import (
+    CertMgmtType,
+    PathMgmtType as PMT,
+    PathSegmentType as PST,
+    PayloadClass,
+)
 from lib.util import SCIONTime, sleep_interval
 from lib.zk.cache import ZkSharedCache
 from lib.zk.errors import ZkNoConnection
@@ -88,6 +94,12 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                 PMT.REG: self.handle_path_segment_record,
                 PMT.REVOCATION: self._handle_revocation,
                 PMT.SYNC: self.handle_path_segment_record,
+            },
+            PayloadClass.CERT: {
+                CertMgmtType.CERT_CHAIN_REQ: self.process_cert_chain_request,
+                CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_reply,
+                CertMgmtType.TRC_REPLY: self.process_trc_reply,
+                CertMgmtType.TRC_REQ: self.process_trc_request,
             },
         }
         self.SCMP_PLD_CLASS_MAP = {
@@ -322,8 +334,11 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
             del self.pending_req[key]
 
     def handle_path_segment_record(self, seg_recs, meta):
-        meta.close()  # FIXME(PSz): validate before
+        self.process_paths(seg_recs, meta)
+
+    def continue_path_processing(self, seg_recs, meta):
         params = self._dispatch_params(seg_recs, meta)
+        meta.close()
         added = set()
         for type_, pcb in seg_recs.iter_pcbs():
             added.update(self._dispatch_segment_record(type_, pcb, **params))
@@ -333,6 +348,18 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
         # Handling pending requests, basing on added segments.
         for dst_ia, sibra in added:
             self._handle_pending_requests(dst_ia, sibra)
+
+    def _verify_path(self, seg_recs):
+        for _, pcb in seg_recs.iter_pcbs():
+            asm = pcb.asm(-1)
+            cert_ia = asm.isd_as()
+            trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
+            chain = self.trust_store.get_cert(asm.isd_as(), asm.cert_ver())
+            if not verify_sig_chain_trc(
+                    pcb.sig_pack(), asm.p.sig, str(cert_ia), chain, trc,
+                    asm.p.trcVer):
+                return False
+        return True
 
     def _dispatch_segment_record(self, type_, seg, **kwargs):
         # Check that segment does not contain a revoked interface.

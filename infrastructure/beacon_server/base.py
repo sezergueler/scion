@@ -140,8 +140,10 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             PayloadClass.PCB: {None: self.handle_pcb},
             PayloadClass.IFID: {None: self.handle_ifid_packet},
             PayloadClass.CERT: {
-                CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_rep,
-                CertMgmtType.TRC_REPLY: self.process_trc_rep,
+                CertMgmtType.CERT_CHAIN_REQ: self.process_cert_chain_request,
+                CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_reply,
+                CertMgmtType.TRC_REPLY: self.process_trc_reply,
+                CertMgmtType.TRC_REQ: self.process_trc_request,
             },
             PayloadClass.PATH: {
                 PMT.IFSTATE_REQ: self._handle_ifstate_request,
@@ -250,13 +252,25 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         if not self.path_policy.check_filters(pcb):
             return
         self.incoming_pcbs.append(pcb)
-        meta.close()
+        self.process_paths(pcb, meta)
+
+    def continue_path_processing(self, pcb, meta):
         entry_name = "%s-%s" % (pcb.get_hops_hash(hex=True), time.time())
         try:
             self.pcb_cache.store(entry_name, pcb.copy().pack())
         except ZkNoConnection:
             logging.error("Unable to store PCB in shared cache: "
                           "no connection to ZK")
+        self._handle_verified_beacon(pcb)
+
+    def _verify_path(self, paths):
+        asm = paths.asm(-1)
+        cert_ia = asm.isd_as()
+        trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
+        chain = self.trust_store.get_cert(asm.isd_as(), asm.cert_ver())
+        return verify_sig_chain_trc(
+            paths.sig_pack(), asm.p.sig, str(cert_ia), chain, trc,
+            asm.p.trcVer)
 
     def handle_ext(self, pcb):
         """
@@ -295,7 +309,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         _, cert_ver = chain.get_leaf_isd_as_ver()
         return ASMarking.from_values(
             self.addr.isd_as, self._get_my_trc().version, cert_ver, pcbms,
-            self._get_ht_root(), self.topology.mtu, chain)
+            self._get_ht_root(), self.topology.mtu)
 
     def _create_pcbms(self, in_if, out_if, ts, prev_hof):
         up_pcbm = self._create_pcbm(in_if, out_if, ts, prev_hof)
@@ -443,7 +457,6 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             start = time.time()
             try:
                 self.process_pcb_queue()
-                self.handle_unverified_beacons()
                 self.zk.wait_connected()
                 self.pcb_cache.process()
                 self.revobjs_cache.process()
@@ -566,8 +579,9 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         asm = pcb.asm(-1)
         cert_ia = asm.isd_as()
         trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
+        chain = self.trust_store.get_cert(asm.isd_as(), asm.p.certVer)
         return verify_sig_chain_trc(
-            pcb.sig_pack(), asm.p.sig, str(cert_ia), asm.chain(), trc,
+            pcb.sig_pack(), asm.p.sig, str(cert_ia), chain, trc,
             asm.p.trcVer)
 
     @abstractmethod

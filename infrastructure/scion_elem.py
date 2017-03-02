@@ -48,12 +48,19 @@ from lib.errors import (
     SCIONServiceLookupError,
 )
 from lib.log import log_exception
+from lib.missing_trc_cert_map import MissingTrcCertMap
 from lib.msg_meta import (
     MetadataBase,
     SCMPMetadata,
     SockOnlyMetadata,
     TCPMetadata,
     UDPMetadata,
+)
+from lib.packet.cert_mgmt import (
+    CertChainReply,
+    CertChainRequest,
+    TRCReply,
+    TRCRequest,
 )
 from lib.packet.ext.one_hop_path import OneHopPathExt
 from lib.packet.host_addr import HostAddrNone
@@ -65,7 +72,7 @@ from lib.packet.scion import (
     build_base_hdrs,
 )
 from lib.packet.svc import SVC_TO_SERVICE, SERVICE_TO_SVC_A
-from lib.packet.scion_addr import SCIONAddr
+from lib.packet.scion_addr import ISD_AS, SCIONAddr
 from lib.packet.scion_udp import SCIONUDPHeader
 from lib.packet.scmp.errors import (
     SCMPBadDstType,
@@ -156,6 +163,7 @@ class SCIONElement(object):
             self.DefaultMeta = TCPMetadata
         else:
             self.DefaultMeta = UDPMetadata
+        self.paths_missing_trcs_certs_map = defaultdict(MissingTrcCertMap)
 
     def _setup_sockets(self, init):
         """
@@ -233,6 +241,161 @@ class SCIONElement(object):
                 handler(msg, meta)
         except SCIONBaseError:
             log_exception("Error handling message:\n%s" % msg)
+
+    def process_paths(self, paths, meta):
+        """
+        When a pcb or path segment is received, this function is called to
+        find missing TRCs and certs and request them.
+        :param msg: pcb or pathSegments
+        """
+        # Get all TRCs' and certs' versions used in this pcb/pathSegments
+        trcs, certs = paths.get_trcs_certs()
+        # Find missing TRCs and certificates
+        missing_trcs, missing_certs = \
+            self._get_missing_trcs_certs_versions(trcs, certs)
+        # Update missing TRCs/certs map
+        if paths not in self.paths_missing_trcs_certs_map.keys():
+            self.paths_missing_trcs_certs_map[paths] = MissingTrcCertMap()
+        self.paths_missing_trcs_certs_map[paths]. \
+            add_missing(missing_trcs, missing_certs)
+
+        # If all necessary TRCs/certs available, try to verify
+        if self.paths_missing_trcs_certs_map[paths].empty():
+            del self.paths_missing_trcs_certs_map[paths]
+            if self._verify_path(paths):
+                self.continue_path_processing(paths, meta)
+        # Otherwise request missing trcs, certs
+        missing_trcs = self.paths_missing_trcs_certs_map[paths].trcs()
+        if missing_trcs:
+            for isd_as, versions in missing_trcs.items():
+                for ver in versions:
+                    trc_req = TRCRequest.from_values(isd_as, ver)
+                    logging.info("Requesting %sv%s TRC", isd_as[0], ver)
+                    self.send_meta(trc_req, meta)
+        missing_certs = self.paths_missing_trcs_certs_map[paths].certs()
+        if missing_certs:
+            for isd_as, versions in missing_certs.items():
+                for ver in versions:
+                    cert_req = CertChainRequest.from_values(isd_as, ver)
+                    logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
+                    self.send_meta(cert_req, meta)
+        meta.close()
+
+    def _verify_path(self, paths):
+        pass
+
+    def _get_missing_trcs_certs_versions(self, trc_versions, cert_versions):
+        """
+        Check which intermediate trcs and certs are missing and which
+        cetificates are missing and return their versions.
+        :returns: the missing TRCs' and certs' versions
+        :rtype dict
+        """
+        missing_trcs = defaultdict(set)
+        for isd_as, versions in trc_versions.items():
+            # If not local TRC, only request this version
+            if isd_as[0] is not self.topology.isd_as[0]:
+                if self.trust_store.get_trc(int(isd_as[0]),
+                                            sorted(versions)[-1]) is None:
+                    missing_trcs[isd_as] = set([sorted(versions)[-1]])
+                continue
+            # Local TRC
+            highest_ver_TRC = self.trust_store.get_trc(int(isd_as[0]))
+            lower_ver = 0
+            if highest_ver_TRC is not None:
+                lower_ver = highest_ver_TRC.version+1
+            for ver in range(lower_ver, sorted(versions)[-1]):
+                missing_trcs[isd_as].add(ver)
+        missing_certs = defaultdict(set)
+        for isd_as, versions in cert_versions.items():
+            if self.trust_store.get_cert(isd_as, sorted(versions)[-1]) is None:
+                missing_certs[isd_as] = set([sorted(versions)[-1]])
+        return missing_trcs, missing_certs
+
+    def process_trc_reply(self, rep, meta):
+        """
+        Process the TRC reply.
+        :param rep: TRC reply.
+        :type rep: TRCReply.
+        """
+        isd, ver = rep.trc.get_isd_ver()
+        isd_as_ = str(isd) + "-0"
+        isd_as = ISD_AS(isd_as_)
+        logging.info("TRC reply received for %sv%s" % (isd, ver))
+        self.trust_store.add_trc(rep.trc, False)
+        # Remove received TRC from map
+        for path in list(self.paths_missing_trcs_certs_map):
+            self.paths_missing_trcs_certs_map[path]. \
+                remove_missing_trc(isd_as, ver)
+            # If all required trcs and certs are received
+            if self.paths_missing_trcs_certs_map[path].empty():
+                del self.paths_missing_trcs_certs_map[path]
+                if self._verify_path(path):
+                    self.continue_path_processing(path, meta)
+
+    def process_trc_request(self, req, meta):
+        """Process a TRC request."""
+        assert isinstance(req, TRCRequest)
+        isd, ver = req.isd_as()[0], req.p.version
+        logging.info("TRC request received for %sv%s" % (isd, ver))
+        trc = self.trust_store.get_trc(isd, ver)
+        if trc:
+            self.send_meta(TRCReply.from_values(trc), meta)
+        else:
+            logging.warning("Could not find requested TRC %sv%s" % (isd, ver))
+            try:
+                # TODO(Sezer): Request from certificate server when it
+                # is implemented
+                addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
+            except SCIONServiceLookupError as e:
+                logging.warning("Sending TRC request failed: %s", e)
+                return
+            trc_req = TRCRequest.from_values(isd, ver)
+            logging.info("Requesting %sv%s TRC", isd, ver)
+            meta = UDPMetadata.from_values(host=addr, port=port)
+            self.send_meta(trc_req, meta)
+
+    def process_cert_chain_reply(self, rep, meta):
+        """Process a certificate chain reply."""
+        assert isinstance(rep, CertChainReply)
+        isd_as, ver = rep.chain.get_leaf_isd_as_ver()
+        logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
+        self.trust_store.add_cert(rep.chain, False)
+        # Remove received cert chain from map
+        for path in list(self.paths_missing_trcs_certs_map):
+            self.paths_missing_trcs_certs_map[path]. \
+                remove_missing_cert(isd_as, ver)
+            # If all required trcs and certs are received
+            if self.paths_missing_trcs_certs_map[path].empty():
+                del self.paths_missing_trcs_certs_map[path]
+                if self._verify_path(path):
+                    self.continue_path_processing(path, meta)
+
+    def process_cert_chain_request(self, req, meta):
+        """Process a certificate chain request."""
+        assert isinstance(req, CertChainRequest)
+        isd_as, ver = req.isd_as(), req.p.version
+        logging.info("Cert chain request received for %sv%s" % (isd_as, ver))
+        cert = self.trust_store.get_cert(isd_as, ver)
+        if cert:
+            self.send_meta(CertChainReply.from_values(cert), meta)
+        else:
+            logging.warning("Could not find requested certificate %sv%s" %
+                            (isd_as, ver))
+            try:
+                # TODO(Sezer): Request from certificate server when it
+                # is implemented
+                addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
+            except SCIONServiceLookupError as e:
+                logging.warning("Sending chain request failed: %s", e)
+                return
+            cert_req = CertChainRequest.from_values(isd_as, ver)
+            logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
+            meta = UDPMetadata.from_values(host=addr, port=port)
+            self.send_meta(cert_req, meta)
+
+    def continue_path_processing(self, paths, meta):
+        pass
 
     def _get_handler(self, pkt):
         # FIXME(PSz): needed only by python router.

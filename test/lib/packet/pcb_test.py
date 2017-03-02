@@ -63,14 +63,13 @@ class TestASMarkingFromValues(object):
         pcbms = []
         for i in range(3):
             pcbms.append(create_mock_full({"p": "pcbm %d" % i}))
-        cchain = create_mock_full({"pack()": "cchain"})
         # Call
         ASMarking.from_values(_ISD_AS1, 2, 3, pcbms, "root", "mtu",
-                              cchain, ifid_size=14)
+                              ifid_size=14)
         # Tests
         p_cls.new_message.assert_called_once_with(
             isdas=_ISD_AS1, trcVer=2, certVer=3, ifIDSize=14,
-            hashTreeRoot="root", mtu="mtu", chain="cchain")
+            hashTreeRoot="root", mtu="mtu")
         msg.init.assert_called_once_with("pcbms", 3)
         for i, pcbm in enumerate(msg.pcbms):
             ntools.eq_("pcbm %d" % i, pcbm)
@@ -87,12 +86,12 @@ class TestASMarkingSigPack(object):
                 "sig_pack()": bytes("pcbm %i" % i, "ascii")}))
         inst = ASMarking(create_mock_full({
             "isdas": _ISD_AS1, "trcVer": 2, "certVer": 3, "ifIDSize": 4,
-            "hashTreeRoot": b"root", "mtu": 1482, "chain": b"chain"}))
+            "hashTreeRoot": b"root", "mtu": 1482}))
         inst.iter_pcbms = create_mock_full(return_value=pcbms)
         expected = b"".join([
             _ISD_AS1_BYTES, bytes.fromhex("00000002 00000003 04"),
             b"pcbm 0", b"pcbm 1", b"pcbm 2", b"root",
-            bytes.fromhex("05ca"), b"chain"])
+            bytes.fromhex("05ca")])
         # Call
         ntools.eq_(inst.sig_pack(8), expected)
 
