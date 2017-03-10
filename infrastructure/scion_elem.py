@@ -256,7 +256,8 @@ class SCIONElement(object):
             self._get_missing_trcs_certs_versions(trcs, certs)
         # Update missing TRCs/certs map
         if paths not in self.paths_missing_trcs_certs_map.keys():
-            self.paths_missing_trcs_certs_map[paths] = (MissingTrcCertMap(), type_, params, )
+            self.paths_missing_trcs_certs_map[paths] = \
+                (MissingTrcCertMap(), type_, params, )
         self.paths_missing_trcs_certs_map[paths][0]. \
             add_missing(missing_trcs, missing_certs)
 
