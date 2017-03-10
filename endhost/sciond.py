@@ -164,40 +164,27 @@ class SCIONDaemon(SCIONElement):
         """
         Handle path reply from local path server.
         """
-    #     self.process_paths(path_reply, meta)
+        for rev_info in path_reply.iter_rev_infos():
+            self.peer_revs.add(rev_info)
 
-    # def continue_path_processing(self, path_reply, meta):
+        for type_, pcb in path_reply.iter_pcbs():
+            self.process_paths(pcb, type_, "", meta)
+
+    def continue_path_processing(self, pcb, type_, params, meta):
         added = set()
         map_ = {
             PST.UP: self._handle_up_seg,
             PST.DOWN: self._handle_down_seg,
             PST.CORE: self._handle_core_seg,
         }
-        for type_, pcb in path_reply.iter_pcbs():
-            ret = map_[type_](pcb)
-            if not ret:
-                continue
+        ret = map_[type_](pcb)
+        if ret:
             flags = (PATH_FLAG_SIBRA,) if pcb.is_sibra() else ()
             added.add((ret, flags))
-        for rev_info in path_reply.iter_rev_infos():
-            self.peer_revs.add(rev_info)
-        logging.debug("Added: %s", added)
         for dst_ia, flags in added:
             self.requests.put(((dst_ia, flags), None))
-        logging.debug("Closing meta")
-        meta.close()
-
-    def _verify_path(self, path_reply):
-        for _, pcb in path_reply.iter_pcbs():
-            asm = pcb.asm(-1)
-            cert_ia = asm.isd_as()
-            trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
-            chain = self.trust_store.get_cert(asm.isd_as(), asm.cert_ver())
-            if not verify_sig_chain_trc(
-                    pcb.sig_pack(), asm.p.sig, str(cert_ia), chain, trc,
-                    asm.p.trcVer):
-                return False
-        return True
+        # (Sezer) not sure about meta.close, all pcbs use the same meta...
+        # meta.close()
 
     def _handle_up_seg(self, pcb):
         if self.addr.isd_as != pcb.last_ia():
