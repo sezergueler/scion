@@ -334,32 +334,23 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
             del self.pending_req[key]
 
     def handle_path_segment_record(self, seg_recs, meta):
-        self.process_paths(seg_recs, meta)
-
-    def continue_path_processing(self, seg_recs, meta):
         params = self._dispatch_params(seg_recs, meta)
-        meta.close()
-        added = set()
-        for type_, pcb in seg_recs.iter_pcbs():
-            added.update(self._dispatch_segment_record(type_, pcb, **params))
+        # meta.close()
         # Add revocations for peer interfaces included in the path segments.
         for rev_info in seg_recs.iter_rev_infos():
             self.revocations.add(rev_info)
-        # Handling pending requests, basing on added segments.
+        # Verify pcbs and process them
+        for type_, pcb in seg_recs.iter_pcbs():
+            self.process_paths(pcb, type_, params, meta)
+
+    def continue_path_processing(self, pcb, type_, params, meta):
+        added = set()
+        added.update(self._dispatch_segment_record(type_, pcb, **params))
         for dst_ia, sibra in added:
             self._handle_pending_requests(dst_ia, sibra)
-
-    def _verify_path(self, seg_recs):
-        for _, pcb in seg_recs.iter_pcbs():
-            asm = pcb.asm(-1)
-            cert_ia = asm.isd_as()
-            trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
-            chain = self.trust_store.get_cert(asm.isd_as(), asm.cert_ver())
-            if not verify_sig_chain_trc(
-                    pcb.sig_pack(), asm.p.sig, str(cert_ia), chain, trc,
-                    asm.p.trcVer):
-                return False
-        return True
+        # (Sezer): Simplification does not work?!
+        # dst_ia, sibra = self._dispatch_segment_record(type_, pcb, **params)
+        # self._handle_pending_requests(dst_ia, sibra)
 
     def _dispatch_segment_record(self, type_, seg, **kwargs):
         # Check that segment does not contain a revoked interface.

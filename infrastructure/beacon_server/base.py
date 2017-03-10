@@ -252,9 +252,9 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         if not self.path_policy.check_filters(pcb):
             return
         self.incoming_pcbs.append(pcb)
-        self.process_paths(pcb, meta)
+        self.process_paths(pcb, "", "", meta)
 
-    def continue_path_processing(self, pcb, meta):
+    def continue_path_processing(self, pcb, type_, params, meta):
         entry_name = "%s-%s" % (pcb.get_hops_hash(hex=True), time.time())
         try:
             self.pcb_cache.store(entry_name, pcb.copy().pack())
@@ -262,15 +262,6 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             logging.error("Unable to store PCB in shared cache: "
                           "no connection to ZK")
         self._handle_verified_beacon(pcb)
-
-    def _verify_path(self, paths):
-        asm = paths.asm(-1)
-        cert_ia = asm.isd_as()
-        trc = self.trust_store.get_trc(cert_ia[0], asm.p.trcVer)
-        chain = self.trust_store.get_cert(asm.isd_as(), asm.cert_ver())
-        return verify_sig_chain_trc(
-            paths.sig_pack(), asm.p.sig, str(cert_ia), chain, trc,
-            asm.p.trcVer)
 
     def handle_ext(self, pcb):
         """
