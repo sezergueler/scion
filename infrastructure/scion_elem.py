@@ -165,7 +165,6 @@ class SCIONElement(object):
         else:
             self.DefaultMeta = UDPMetadata
         self.paths_missing_trcs_certs_map = defaultdict(tuple)
-        self.requested_trcs_certs = set()
 
     def _setup_sockets(self, init):
         """
@@ -272,20 +271,16 @@ class SCIONElement(object):
         if missing_trcs:
             for isd_as, versions in missing_trcs.items():
                 for ver in versions:
-                    if not (isd_as, ver) in self.requested_trcs_certs:
-                        self.requested_trcs_certs.add((isd_as, ver))
-                        trc_req = TRCRequest.from_values(isd_as, ver)
-                        logging.info("Requesting %sv%s TRC", isd_as[0], ver)
-                        self.send_meta(trc_req, meta)
+                    trc_req = TRCRequest.from_values(isd_as, ver)
+                    logging.info("Requesting %sv%s TRC", isd_as[0], ver)
+                    self.send_meta(trc_req, meta)
         missing_certs = self.paths_missing_trcs_certs_map[paths][0].certs()
         if missing_certs:
             for isd_as, versions in missing_certs.items():
                 for ver in versions:
-                    if not (isd_as, ver) in self.requested_trcs_certs:
-                        self.requested_trcs_certs.add((isd_as, ver))
-                        cert_req = CertChainRequest.from_values(isd_as, ver)
-                        logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
-                        self.send_meta(cert_req, meta)
+                    cert_req = CertChainRequest.from_values(isd_as, ver)
+                    logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
+                    self.send_meta(cert_req, meta)
         meta.close()
 
     def _get_missing_trcs_certs_versions(self, trc_versions, cert_versions):
@@ -327,8 +322,6 @@ class SCIONElement(object):
         isd_as = ISD_AS(isd_as_)
         logging.info("TRC reply received for %sv%s" % (isd, ver))
         self.trust_store.add_trc(rep.trc, False)
-        if (isd_as, ver) in self.requested_trcs_certs:
-            self.requested_trcs_certs.remove((isd_as, ver))
         # Remove received TRC from map
         for path in list(self.paths_missing_trcs_certs_map):
             self.paths_missing_trcs_certs_map[path][0]. \
@@ -358,12 +351,10 @@ class SCIONElement(object):
             except SCIONServiceLookupError as e:
                 logging.warning("Sending TRC request failed: %s", e)
                 return
-            if not (req.isd_as(), ver) in self.requested_trcs_certs:
-                self.requested_trcs_certs.add((req.isd_as(), ver))
-                trc_req = TRCRequest.from_values(isd, ver)
-                logging.info("Requesting %sv%s TRC", isd, ver)
-                meta = UDPMetadata.from_values(host=addr, port=port)
-                self.send_meta(trc_req, meta)
+            trc_req = TRCRequest.from_values(isd, ver)
+            logging.info("Requesting %sv%s TRC", isd, ver)
+            meta = UDPMetadata.from_values(host=addr, port=port)
+            self.send_meta(trc_req, meta)
 
     def process_cert_chain_reply(self, rep, meta):
         """Process a certificate chain reply."""
@@ -371,8 +362,6 @@ class SCIONElement(object):
         isd_as, ver = rep.chain.get_leaf_isd_as_ver()
         logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
         self.trust_store.add_cert(rep.chain, False)
-        if (isd_as, ver) in self.requested_trcs_certs:
-            self.requested_trcs_certs.remove((isd_as, ver))
         # Remove received cert chain from map
         for path in list(self.paths_missing_trcs_certs_map):
             self.paths_missing_trcs_certs_map[path][0]. \
@@ -403,12 +392,10 @@ class SCIONElement(object):
             except SCIONServiceLookupError as e:
                 logging.warning("Sending chain request failed: %s", e)
                 return
-            if not (isd_as, ver) in self.requested_trcs_certs:
-                self.requested_trcs_certs.add((isd_as, ver))
-                cert_req = CertChainRequest.from_values(isd_as, ver)
-                logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
-                meta = UDPMetadata.from_values(host=addr, port=port)
-                self.send_meta(cert_req, meta)
+            cert_req = CertChainRequest.from_values(isd_as, ver)
+            logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
+            meta = UDPMetadata.from_values(host=addr, port=port)
+            self.send_meta(cert_req, meta)
 
     def _verify_path(self, paths):
         asm = paths.asm(-1)
