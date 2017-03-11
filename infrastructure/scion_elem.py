@@ -73,7 +73,7 @@ from lib.packet.scion import (
     build_base_hdrs,
 )
 from lib.packet.svc import SVC_TO_SERVICE, SERVICE_TO_SVC_A
-from lib.packet.scion_addr import ISD_AS, SCIONAddr
+from lib.packet.scion_addr import SCIONAddr
 from lib.packet.scion_udp import SCIONUDPHeader
 from lib.packet.scmp.errors import (
     SCMPBadDstType,
@@ -258,9 +258,10 @@ class SCIONElement(object):
         if paths not in self.paths_missing_trcs_certs_map.keys():
             self.paths_missing_trcs_certs_map[paths] = \
                 (MissingTrcCertMap(), type_, params, )
-        self.paths_missing_trcs_certs_map[paths][0]. \
-            add_missing(missing_trcs, missing_certs)
-
+        self.paths_missing_trcs_certs_map[paths][0] \
+            .missing_trcs.update(missing_trcs)
+        self.paths_missing_trcs_certs_map[paths][0] \
+            .missing_certs.update(missing_certs)
         # If all necessary TRCs/certs available, try to verify
         if self.paths_missing_trcs_certs_map[paths][0].empty():
             # del self.paths_missing_trcs_certs_map[paths]
@@ -268,20 +269,19 @@ class SCIONElement(object):
                 meta.close()
                 self.continue_path_processing(paths, type_, params)
         # Otherwise request missing trcs, certs
-        missing_trcs = self.paths_missing_trcs_certs_map[paths][0].trcs()
+        missing_trcs = self.paths_missing_trcs_certs_map[paths][0].missing_trcs
         if missing_trcs:
-            for isd_as, versions in missing_trcs.items():
-                for ver in versions:
-                    trc_req = TRCRequest.from_values(isd_as, ver)
-                    logging.info("Requesting %sv%s TRC", isd_as[0], ver)
-                    self.send_meta(trc_req, meta)
-        missing_certs = self.paths_missing_trcs_certs_map[paths][0].certs()
+            for isd_as, ver in missing_trcs:
+                trc_req = TRCRequest.from_values(isd_as, ver)
+                logging.info("Requesting %sv%s TRC", isd_as[0], ver)
+                self.send_meta(trc_req, meta)
+        missing_certs = self.paths_missing_trcs_certs_map[paths][0] \
+            .missing_certs
         if missing_certs:
-            for isd_as, versions in missing_certs.items():
-                for ver in versions:
-                    cert_req = CertChainRequest.from_values(isd_as, ver)
-                    logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
-                    self.send_meta(cert_req, meta)
+            for isd_as, ver in missing_certs:
+                cert_req = CertChainRequest.from_values(isd_as, ver)
+                logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
+                self.send_meta(cert_req, meta)
         meta.close()
 
     def _get_missing_trcs_certs_versions(self, trc_versions, cert_versions):
@@ -291,25 +291,25 @@ class SCIONElement(object):
         :returns: the missing TRCs' and certs' versions
         :rtype dict
         """
-        missing_trcs = defaultdict(set)
-        for isd_as, versions in trc_versions.items():
+        missing_trcs = set()
+        for isd, versions in trc_versions.items():
             # If not local TRC, only request this version
-            if isd_as[0] is not self.topology.isd_as[0]:
-                if self.trust_store.get_trc(int(isd_as[0]),
+            if isd[0] is not self.topology.isd_as[0]:
+                if self.trust_store.get_trc(int(isd[0]),
                                             sorted(versions)[-1]) is None:
-                    missing_trcs[isd_as] = set([sorted(versions)[-1]])
+                    missing_trcs.add((isd[0], sorted(versions)[-1]))
                 continue
             # Local TRC
-            highest_ver_TRC = self.trust_store.get_trc(int(isd_as[0]))
+            highest_ver_TRC = self.trust_store.get_trc(int(isd[0]))
             lower_ver = 0
             if highest_ver_TRC is not None:
                 lower_ver = highest_ver_TRC.version+1
             for ver in range(lower_ver, sorted(versions)[-1]):
-                missing_trcs[isd_as].add(ver)
-        missing_certs = defaultdict(set)
+                missing_trcs.add((isd[0], ver))
+        missing_certs = set()
         for isd_as, versions in cert_versions.items():
             if self.trust_store.get_cert(isd_as, sorted(versions)[-1]) is None:
-                missing_certs[isd_as] = set([sorted(versions)[-1]])
+                missing_certs.add((isd_as, sorted(versions)[-1]))
         return missing_trcs, missing_certs
 
     def process_trc_reply(self, rep, meta):
@@ -319,14 +319,12 @@ class SCIONElement(object):
         :type rep: TRCReply.
         """
         isd, ver = rep.trc.get_isd_ver()
-        isd_as_ = str(isd) + "-0"
-        isd_as = ISD_AS(isd_as_)
         logging.info("TRC reply received for %sv%s" % (isd, ver))
-        self.trust_store.add_trc(rep.trc, False)
+        self.trust_store.add_trc(rep.trc, True)
         # Remove received TRC from map
         for path in list(self.paths_missing_trcs_certs_map):
-            self.paths_missing_trcs_certs_map[path][0]. \
-                remove_missing_trc(isd_as, ver)
+            self.paths_missing_trcs_certs_map[path][0] \
+                .missing_trcs.discard((isd, ver))
             type_ = self.paths_missing_trcs_certs_map[path][1]
             params = self.paths_missing_trcs_certs_map[path][2]
             # If all required trcs and certs are received
@@ -362,11 +360,11 @@ class SCIONElement(object):
         assert isinstance(rep, CertChainReply)
         isd_as, ver = rep.chain.get_leaf_isd_as_ver()
         logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
-        self.trust_store.add_cert(rep.chain, False)
+        self.trust_store.add_cert(rep.chain, True)
         # Remove received cert chain from map
         for path in list(self.paths_missing_trcs_certs_map):
-            self.paths_missing_trcs_certs_map[path][0]. \
-                remove_missing_cert(isd_as, ver)
+            self.paths_missing_trcs_certs_map[path][0] \
+                .missing_certs.discard((isd_as, ver))
             type_ = self.paths_missing_trcs_certs_map[path][1]
             params = self.paths_missing_trcs_certs_map[path][2]
             # If all required trcs and certs are received
