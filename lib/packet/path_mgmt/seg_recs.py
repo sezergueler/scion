@@ -15,11 +15,7 @@
 :mod:`seg_recs` --- Path Segment records
 ============================================
 """
-# Stdlib
-import struct
-
 # External
-from Crypto.Hash import SHA256
 import capnp  # noqa
 
 # SCION
@@ -70,27 +66,6 @@ class PathSegmentRecords(PathMgmtPayloadBase):  # pragma: no cover
         for i in range(start, len(self.p.revInfos)):
             yield self.rev_info(i)
 
-    def get_trcs_certs(self):
-        """
-        Returns a dict of all trcs' versions and a dict of all certificates'
-        versions used in this reply, with their highest version number.
-        """
-        trcs = {}
-        certs = {}
-        for pcb in self.iter_pcbs():
-            trcs_, certs_ = pcb[1].get_trcs_certs()
-            for isd in trcs_:
-                if isd in trcs:
-                    trcs[isd].update(trcs_[isd])
-                else:
-                    trcs[isd] = trcs_[isd]
-            for isd_as in certs_:
-                if isd_as in certs:
-                    certs[isd_as].update(certs_[isd_as])
-                else:
-                    certs[isd_as] = certs_[isd_as]
-        return trcs, certs
-
     def __str__(self):
         s = []
         s.append("%s:" % self.NAME)
@@ -105,19 +80,6 @@ class PathSegmentRecords(PathMgmtPayloadBase):  # pragma: no cover
             s.append("  %s" % rev_info.short_desc())
 
         return "\n".join(s)
-
-    def _get_pcbs_hash(self):
-        # Compute hash over pcbs
-        h = SHA256.new()
-        for pcb in self.iter_pcbs():
-            h.update(struct.pack("!q", hash(pcb[1])))
-        return h.digest()
-
-    def __hash__(self):
-        return hash(self._get_pcbs_hash())
-
-    def __eq__(self, other):
-        return self.__hash__() == hash(other)
 
 
 class PathRecordsReply(PathSegmentRecords):

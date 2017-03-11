@@ -16,6 +16,7 @@
 ===========================
 """
 # Stdlib
+from collections import defaultdict
 import struct
 
 # External packages
@@ -224,22 +225,15 @@ class PathSegment(SCIONPayloadBaseProto):
     def get_trcs_certs(self):
         """
         Returns a dict of all trcs' versions and a dict of all certificates'
-        versions used in this PCB, with their highest version number.
+        versions used in this PCB.
         """
-        trcs = {}
-        certs = {}
+        trcs = defaultdict(set)
+        certs = defaultdict(set)
         for asm in self.iter_asms():
             isd_as = asm.isd_as()
-            isd_ = str(asm.isd_as()[0]) + "-0"
-            isd = ISD_AS(isd_)
-            if isd not in trcs.keys():
-                trcs[isd] = set([asm.p.trcVer])
-            else:
-                trcs[isd].add(asm.p.trcVer)
-            if isd_as not in certs.keys():
-                certs[isd_as] = set([asm.p.certVer])
-            else:
-                certs[isd_as].add(asm.p.certVer)
+            isd = isd_as.any_as()
+            trcs[isd].add(asm.p.trcVer)
+            certs[isd_as].add(asm.p.certVer)
         return trcs, certs
 
     def get_path(self, reverse_direction=False):
