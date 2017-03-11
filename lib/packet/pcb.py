@@ -121,7 +121,7 @@ class ASMarking(Cerealizable):
         Pack for signing up for given version (defined by highest field number).
         """
         b = []
-        if ver >= 7:
+        if ver >= 8:
             b.append(self.p.isdas.to_bytes(4, 'big'))
             b.append(self.p.trcVer.to_bytes(4, 'big'))
             b.append(self.p.certVer.to_bytes(4, 'big'))
