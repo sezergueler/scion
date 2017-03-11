@@ -167,9 +167,9 @@ class SCIONDaemon(SCIONElement):
             self.peer_revs.add(rev_info)
 
         for type_, pcb in path_reply.iter_pcbs():
-            self.process_paths(pcb, type_, "", meta)
+            self.process_path(pcb, type_, "", meta)
 
-    def continue_path_processing(self, pcb, type_, params, meta):
+    def continue_path_processing(self, pcb, type_, params):
         added = set()
         map_ = {
             PST.UP: self._handle_up_seg,
@@ -182,8 +182,6 @@ class SCIONDaemon(SCIONElement):
             added.add((ret, flags))
         for dst_ia, flags in added:
             self.requests.put(((dst_ia, flags), None))
-        # (Sezer) not sure about meta.close, all pcbs use the same meta...
-        # meta.close()
 
     def _handle_up_seg(self, pcb):
         if self.addr.isd_as != pcb.last_ia():

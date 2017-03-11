@@ -243,7 +243,7 @@ class SCIONElement(object):
         except SCIONBaseError:
             log_exception("Error handling message:\n%s" % msg)
 
-    def process_paths(self, paths, type_, params, meta):
+    def process_path(self, paths, type_, params, meta):
         """
         When a pcb or path segment is received, this function is called to
         find missing TRCs and certs and request them.
@@ -265,7 +265,8 @@ class SCIONElement(object):
         if self.paths_missing_trcs_certs_map[paths][0].empty():
             # del self.paths_missing_trcs_certs_map[paths]
             if self._verify_path(paths):
-                self.continue_path_processing(paths, type_, params, meta)
+                meta.close()
+                self.continue_path_processing(paths, type_, params)
         # Otherwise request missing trcs, certs
         missing_trcs = self.paths_missing_trcs_certs_map[paths][0].trcs()
         if missing_trcs:
@@ -332,7 +333,7 @@ class SCIONElement(object):
             if self.paths_missing_trcs_certs_map[path][0].empty():
                 del self.paths_missing_trcs_certs_map[path]
                 if self._verify_path(path):
-                    self.continue_path_processing(path, type_, params, meta)
+                    self.continue_path_processing(path, type_, params)
 
     def process_trc_request(self, req, meta):
         """Process a TRC request."""
@@ -372,7 +373,7 @@ class SCIONElement(object):
             if self.paths_missing_trcs_certs_map[path][0].empty():
                 del self.paths_missing_trcs_certs_map[path]
                 if self._verify_path(path):
-                    self.continue_path_processing(path, type_, params, meta)
+                    self.continue_path_processing(path, type_, params)
 
     def process_cert_chain_request(self, req, meta):
         """Process a certificate chain request."""
@@ -406,7 +407,7 @@ class SCIONElement(object):
             paths.sig_pack(), asm.p.sig, str(cert_ia), chain, trc,
             asm.p.trcVer)
 
-    def continue_path_processing(self, paths, type_, params, meta):
+    def continue_path_processing(self, paths, type_, params):
         pass
 
     def _get_handler(self, pkt):

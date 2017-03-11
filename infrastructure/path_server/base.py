@@ -334,15 +334,14 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
 
     def handle_path_segment_record(self, seg_recs, meta):
         params = self._dispatch_params(seg_recs, meta)
-        # meta.close()
         # Add revocations for peer interfaces included in the path segments.
         for rev_info in seg_recs.iter_rev_infos():
             self.revocations.add(rev_info)
         # Verify pcbs and process them
         for type_, pcb in seg_recs.iter_pcbs():
-            self.process_paths(pcb, type_, params, meta)
+            self.process_path(pcb, type_, params, meta)
 
-    def continue_path_processing(self, pcb, type_, params, meta):
+    def continue_path_processing(self, pcb, type_, params):
         added = set()
         added.update(self._dispatch_segment_record(type_, pcb, **params))
         for dst_ia, sibra in added:
