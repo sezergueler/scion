@@ -320,7 +320,7 @@ class SCIONElement(object):
         """
         isd, ver = rep.trc.get_isd_ver()
         logging.info("TRC reply received for %sv%s" % (isd, ver))
-        self.trust_store.add_trc(rep.trc, True)
+        self.trust_store.add_trc(rep.trc, False)
         # Remove received TRC from map
         for path in list(self.paths_missing_trcs_certs_map):
             self.paths_missing_trcs_certs_map[path][0] \
@@ -360,7 +360,7 @@ class SCIONElement(object):
         assert isinstance(rep, CertChainReply)
         isd_as, ver = rep.chain.get_leaf_isd_as_ver()
         logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
-        self.trust_store.add_cert(rep.chain, True)
+        self.trust_store.add_cert(rep.chain, False)
         # Remove received cert chain from map
         for path in list(self.paths_missing_trcs_certs_map):
             self.paths_missing_trcs_certs_map[path][0] \
