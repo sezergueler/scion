@@ -121,7 +121,7 @@ class ASMarking(Cerealizable):
         Pack for signing up for given version (defined by highest field number).
         """
         b = []
-        if ver >= 8:
+        if ver >= 7:
             b.append(self.p.isdas.to_bytes(4, 'big'))
             b.append(self.p.trcVer.to_bytes(4, 'big'))
             b.append(self.p.certVer.to_bytes(4, 'big'))
@@ -189,7 +189,7 @@ class PathSegment(SCIONPayloadBaseProto):
             b.append(self.p.info)
             # ifID field is changed on the fly, and so is ignored.
             for asm in self.iter_asms():
-                b.append(asm.sig_pack(9))
+                b.append(asm.sig_pack(7))
             if self.is_sibra():
                 b.append(self.sibra_ext.sig_pack(2))
         return b"".join(b)
