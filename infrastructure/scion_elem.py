@@ -243,39 +243,39 @@ class SCIONElement(object):
         except SCIONBaseError:
             log_exception("Error handling message:\n%s" % msg)
 
-    def process_path(self, paths, type_, params, meta):
+    def process_path(self, path, type_, params, meta):
         """
         When a pcb or path segment is received, this function is called to
         find missing TRCs and certs and request them.
-        :param msg: pcb or pathSegments
+        :param path: pcb or pathSegment
         """
         # Get all TRCs' and certs' versions used in this pcb/pathSegments
-        trcs, certs = paths.get_trcs_certs()
+        trcs, certs = path.get_trcs_certs()
         # Find missing TRCs and certificates
         missing_trcs, missing_certs = \
             self._get_missing_trcs_certs_versions(trcs, certs)
         # Update missing TRCs/certs map
-        if paths not in self.paths_missing_trcs_certs_map.keys():
-            self.paths_missing_trcs_certs_map[paths] = \
+        if path not in self.paths_missing_trcs_certs_map.keys():
+            self.paths_missing_trcs_certs_map[path] = \
                 (MissingTrcCertMap(), type_, params, )
-        self.paths_missing_trcs_certs_map[paths][0] \
+        self.paths_missing_trcs_certs_map[path][0] \
             .missing_trcs.update(missing_trcs)
-        self.paths_missing_trcs_certs_map[paths][0] \
+        self.paths_missing_trcs_certs_map[path][0] \
             .missing_certs.update(missing_certs)
         # If all necessary TRCs/certs available, try to verify
-        if self.paths_missing_trcs_certs_map[paths][0].empty():
+        if self.paths_missing_trcs_certs_map[path][0].empty():
             # del self.paths_missing_trcs_certs_map[paths]
-            if self._verify_path(paths):
+            if self._verify_path(path):
                 meta.close()
-                self.continue_path_processing(paths, type_, params)
+                self.continue_path_processing(path, type_, params)
         # Otherwise request missing trcs, certs
-        missing_trcs = self.paths_missing_trcs_certs_map[paths][0].missing_trcs
+        missing_trcs = self.paths_missing_trcs_certs_map[path][0].missing_trcs
         if missing_trcs:
             for isd_as, ver in missing_trcs:
                 trc_req = TRCRequest.from_values(isd_as, ver)
                 logging.info("Requesting %sv%s TRC", isd_as[0], ver)
                 self.send_meta(trc_req, meta)
-        missing_certs = self.paths_missing_trcs_certs_map[paths][0] \
+        missing_certs = self.paths_missing_trcs_certs_map[path][0] \
             .missing_certs
         if missing_certs:
             for isd_as, ver in missing_certs:
@@ -289,23 +289,23 @@ class SCIONElement(object):
         Check which intermediate trcs and certs are missing and which
         cetificates are missing and return their versions.
         :returns: the missing TRCs' and certs' versions
-        :rtype dict
+        :rtype set, set
         """
         missing_trcs = set()
         for isd, versions in trc_versions.items():
             # If not local TRC, only request this version
-            if isd[0] is not self.topology.isd_as[0]:
-                if self.trust_store.get_trc(int(isd[0]),
+            if isd is not self.topology.isd_as[0]:
+                if self.trust_store.get_trc(int(isd),
                                             sorted(versions)[-1]) is None:
-                    missing_trcs.add((isd[0], sorted(versions)[-1]))
+                    missing_trcs.add((isd, sorted(versions)[-1]))
                 continue
             # Local TRC
-            highest_ver_TRC = self.trust_store.get_trc(int(isd[0]))
+            highest_ver_TRC = self.trust_store.get_trc(int(isd))
             lower_ver = 0
             if highest_ver_TRC is not None:
                 lower_ver = highest_ver_TRC.version+1
             for ver in range(lower_ver, sorted(versions)[-1]):
-                missing_trcs.add((isd[0], ver))
+                missing_trcs.add((isd, ver))
         missing_certs = set()
         for isd_as, versions in cert_versions.items():
             if self.trust_store.get_cert(isd_as, sorted(versions)[-1]) is None:

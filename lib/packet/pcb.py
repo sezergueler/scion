@@ -231,7 +231,7 @@ class PathSegment(SCIONPayloadBaseProto):
         certs = defaultdict(set)
         for asm in self.iter_asms():
             isd_as = asm.isd_as()
-            isd = isd_as.any_as()
+            isd = isd_as[0]
             trcs[isd].add(asm.p.trcVer)
             certs[isd_as].add(asm.p.certVer)
         return trcs, certs
