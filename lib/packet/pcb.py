@@ -108,9 +108,6 @@ class ASMarking(Cerealizable):
         for i in range(start, len(self.p.pcbms)):
             yield self.pcbm(i)
 
-    def cert_ver(self):
-        return self.p.certVer
-
     def add_ext(self, ext):  # pragma: no cover
         """
         Appends a new ASMarking extension.
@@ -124,7 +121,7 @@ class ASMarking(Cerealizable):
         Pack for signing up for given version (defined by highest field number).
         """
         b = []
-        if ver >= 8:
+        if ver >= 7:
             b.append(self.p.isdas.to_bytes(4, 'big'))
             b.append(self.p.trcVer.to_bytes(4, 'big'))
             b.append(self.p.certVer.to_bytes(4, 'big'))
@@ -198,7 +195,6 @@ class PathSegment(SCIONPayloadBaseProto):
         return b"".join(b)
 
     def sign(self, key, set_=True):  # pragma: no cover
-        # assert not self.p.asms[-1].sig
         sig = sign(self.sig_pack(3), key)
         if set_:
             self.p.asms[-1].sig = sig
