@@ -473,15 +473,6 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                     self._zk_write_cert(cert.pack())
             self._zk_write(seg_recs.pack())
 
-    # def _share_via_zk(self):
-    #     if not self._segs_to_zk:
-    #         return
-    #     logging.info("Sharing %d segment(s) via ZK", len(self._segs_to_zk))
-    #     for pcb_dict in self._gen_prop_recs(self._segs_to_zk,
-    #                                         limit=self.ZK_SHARE_LIMIT):
-    #         seg_recs = PathSegmentRecords.from_values(pcb_dict)
-    #         self._zk_write(seg_recs.pack())
-
     def _share_revs_via_zk(self):
         if not self._revs_to_zk:
             return
