@@ -123,6 +123,7 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                                        self._rev_entries_handler)
         self.cert_cache = ZkSharedCache(self.zk, self.ZK_CERT_CACHE,
                                         self._cached_certs_handler)
+        self.shared_certs = set()
 
     def worker(self):
         """
@@ -465,9 +466,12 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                 trcs, certs = pcb.get_trcs_certs()
                 logging.error(certs)
                 for isd_as, ver in certs.items():
+                    if (isd_as, sorted(ver)[-1]) in self.shared_certs:
+                        continue
                     cert = self.trust_store.get_cert(isd_as, sorted(ver)[-1])
                     if not cert:
                         continue
+                    self.shared_certs.add((isd_as, sorted(ver)[-1]))
                     logging.info("Sharing %sv%s CERTCHAIN via ZK" %
                                  (isd_as, sorted(ver)[-1]))
                     self._zk_write_cert(cert.pack())
