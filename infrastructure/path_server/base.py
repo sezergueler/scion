@@ -28,6 +28,7 @@ from external.expiring_dict import ExpiringDict
 
 # SCION
 from infrastructure.scion_elem import SCIONElement
+from lib.crypto.certificate_chain import CertificateChain
 from lib.crypto.hash_tree import ConnectedHashTree
 from lib.defines import (
     BEACON_SERVICE,
@@ -70,6 +71,8 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
     ZK_PATH_CACHE_PATH = "path_cache"
     # ZK path for incoming REVs
     ZK_REV_CACHE_PATH = "rev_cache"
+    # ZK path for incoming CERTs
+    ZK_CERT_CACHE = "cert_cache"
     # Max number of segments per propagation packet
     PROP_LIMIT = 5
     # Max number of segments per ZK cache entry
@@ -114,6 +117,7 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
         }
         self._segs_to_zk = deque()
         self._revs_to_zk = deque()
+        self._certs_to_zk = deque()
         self._zkid = ZkID.from_values(self.addr.isd_as, self.id,
                                       [(self.addr.host, self._port)])
         self.zk = Zookeeper(self.topology.isd_as, PATH_SERVICE,
@@ -123,6 +127,8 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                                         self._cached_entries_handler)
         self.rev_cache = ZkSharedCache(self.zk, self.ZK_REV_CACHE_PATH,
                                        self._rev_entries_handler)
+        self.cert_cache = ZkSharedCache(self.zk, self.ZK_CERT_CACHE,
+                                        self._cached_certs_handler)
 
     def worker(self):
         """
@@ -140,6 +146,7 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                 self.zk.wait_connected()
                 self.path_cache.process()
                 self.rev_cache.process()
+                self.cert_cache.process()
                 # Try to become a master.
                 is_master = self.zk.get_lock(lock_timeout=0, conn_timeout=0)
                 if is_master:
@@ -147,6 +154,7 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                         logging.info("Became master")
                     self.path_cache.expire(self.config.propagation_time * 10)
                     self.rev_cache.expire(self.ZK_REV_OBJ_MAX_AGE)
+                    self.cert_cache.expire(self.config.propagation_time * 10)
                     was_master = True
                 else:
                     was_master = False
@@ -165,38 +173,21 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
             recs = PathSegmentRecords.from_raw(raw)
             for type_, pcb in recs.iter_pcbs():
                 count += 1
-                trcs, certs = pcb.get_trcs_certs()
-                missing_trcs, missing_certs = \
-                    self._get_missing_trcs_certs_versions(trcs, certs)
-                if not missing_trcs and not missing_certs:
-                    self._dispatch_segment_record(type_, pcb, from_zk=True)
-                else:
-                    for isd, ver in missing_trcs:
-                        try:
-                            # TODO(Sezer): Request from certificate server when it
-                            # is implemented
-                            addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
-                        except SCIONServiceLookupError as e:
-                            logging.warning("Sending chain request failed: %s", e)
-                            return
-                        trc_req = TRCRequest.from_values(isd, ver)
-                        logging.info("Requesting %sv%s TRC", isd, ver)
-                        meta = UDPMetadata.from_values(host=addr, port=port)
-                        self.send_meta(trc_req, meta)
-                    for isd_as, ver in missing_certs:
-                        try:
-                            # TODO(Sezer): Request from certificate server when it
-                            # is implemented
-                            addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
-                        except SCIONServiceLookupError as e:
-                            logging.warning("Sending chain request failed: %s", e)
-                            return
-                        cert_req = CertChainRequest.from_values(isd_as, ver)
-                        logging.info("Requesting %sv%s TRC", isd_as, ver)
-                        meta = UDPMetadata.from_values(host=addr, port=port)
-                        self.send_meta(cert_req, meta)
+                self._dispatch_segment_record(type_, pcb, from_zk=True)
         if count:
             logging.debug("Processed %s PCBs from ZK", count)
+
+    def _cached_certs_handler(self, raw_entries):
+        """
+        Handles cached through ZK entries, passed as a list.
+        """
+        count = 0
+        for raw in raw_entries:
+            count += 1
+            cert = CertificateChain.from_raw(raw.decode('utf-8'))
+            self.trust_store.add_cert(cert)
+        if count:
+            logging.debug("Processed %s certs from ZK", count)
 
     def _update_master(self):
         pass
@@ -475,7 +466,26 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
         for pcb_dict in self._gen_prop_recs(self._segs_to_zk,
                                             limit=self.ZK_SHARE_LIMIT):
             seg_recs = PathSegmentRecords.from_values(pcb_dict)
+            logging.error(self._segs_to_zk)
+            for _, pcb in seg_recs.iter_pcbs():
+                trcs, certs = pcb.get_trcs_certs()
+                logging.error(certs)
+                for isd_as, ver in certs.items():
+                    cert = self.trust_store.get_cert(isd_as, sorted(ver)[-1])
+                    if not cert:
+                        continue
+                    logging.info("Sharing %sv%s CERTCHAIN via ZK" % (isd_as, sorted(ver)[-1]))
+                    self._zk_write_cert(cert.pack())
             self._zk_write(seg_recs.pack())
+
+    # def _share_via_zk(self):
+    #     if not self._segs_to_zk:
+    #         return
+    #     logging.info("Sharing %d segment(s) via ZK", len(self._segs_to_zk))
+    #     for pcb_dict in self._gen_prop_recs(self._segs_to_zk,
+    #                                         limit=self.ZK_SHARE_LIMIT):
+    #         seg_recs = PathSegmentRecords.from_values(pcb_dict)
+    #         self._zk_write(seg_recs.pack())
 
     def _share_revs_via_zk(self):
         if not self._revs_to_zk:
@@ -498,6 +508,14 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
             self.rev_cache.store("%s-%s" % (hash_, SCIONTime.get_time()), data)
         except ZkNoConnection:
             logging.warning("Unable to store revocation(s) in shared path: "
+                            "no connection to ZK")
+
+    def _zk_write_cert(self, data):
+        hash_ = SHA256.new(data).hexdigest()
+        try:
+            self.cert_cache.store("%s-%s" % (hash_, SCIONTime.get_time()), data)
+        except ZkNoConnection:
+            logging.warning("Unable to store certificate(s) in shared path: "
                             "no connection to ZK")
 
     def run(self):
