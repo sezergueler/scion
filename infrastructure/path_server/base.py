@@ -31,15 +31,9 @@ from infrastructure.scion_elem import SCIONElement
 from lib.crypto.certificate_chain import CertificateChain
 from lib.crypto.hash_tree import ConnectedHashTree
 from lib.defines import (
-    BEACON_SERVICE,
     HASHTREE_EPOCH_TIME,
     HASHTREE_TTL,
     PATH_SERVICE,
-)
-from lib.msg_meta import UDPMetadata
-from lib.packet.cert_mgmt import (
-    CertChainRequest,
-    TRCRequest,
 )
 from lib.packet.path_mgmt.rev_info import RevocationInfo
 from lib.packet.path_mgmt.seg_recs import PathRecordsReply, PathSegmentRecords
@@ -474,7 +468,8 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                     cert = self.trust_store.get_cert(isd_as, sorted(ver)[-1])
                     if not cert:
                         continue
-                    logging.info("Sharing %sv%s CERTCHAIN via ZK" % (isd_as, sorted(ver)[-1]))
+                    logging.info("Sharing %sv%s CERTCHAIN via ZK" %
+                                 (isd_as, sorted(ver)[-1]))
                     self._zk_write_cert(cert.pack())
             self._zk_write(seg_recs.pack())
 
