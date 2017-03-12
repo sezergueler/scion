@@ -111,7 +111,6 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
         }
         self._segs_to_zk = deque()
         self._revs_to_zk = deque()
-        self._certs_to_zk = deque()
         self._zkid = ZkID.from_values(self.addr.isd_as, self.id,
                                       [(self.addr.host, self._port)])
         self.zk = Zookeeper(self.topology.isd_as, PATH_SERVICE,
