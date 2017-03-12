@@ -177,9 +177,11 @@ class SCIONDaemon(SCIONElement):
             PST.CORE: self._handle_core_seg,
         }
         ret = map_[type_](pcb)
-        if ret:
-            flags = (PATH_FLAG_SIBRA,) if pcb.is_sibra() else ()
-            added.add((ret, flags))
+        if not ret:
+            return
+        flags = (PATH_FLAG_SIBRA,) if pcb.is_sibra() else ()
+        added.add((ret, flags))
+        logging.debug("Added: %s", added)
         for dst_ia, flags in added:
             self.requests.put(((dst_ia, flags), None))
 
