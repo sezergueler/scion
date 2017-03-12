@@ -165,6 +165,7 @@ class SCIONElement(object):
         else:
             self.DefaultMeta = UDPMetadata
         self.paths_missing_trcs_certs_map = defaultdict(tuple)
+        self.requested_trcs_certs = set()
 
     def _setup_sockets(self, init):
         """
@@ -272,6 +273,9 @@ class SCIONElement(object):
         missing_trcs = self.paths_missing_trcs_certs_map[path][0].missing_trcs
         if missing_trcs:
             for isd_as, ver in missing_trcs:
+                if (isd_as[0], ver) in self.requested_trcs_certs:
+                    continue
+                self.requested_trcs_certs.add((isd_as[0], ver))
                 trc_req = TRCRequest.from_values(isd_as, ver)
                 logging.info("Requesting %sv%s TRC", isd_as[0], ver)
                 self.send_meta(trc_req, meta)
@@ -279,6 +283,9 @@ class SCIONElement(object):
             .missing_certs
         if missing_certs:
             for isd_as, ver in missing_certs:
+                if (isd_as, ver) in self.requested_trcs_certs:
+                    continue
+                self.requested_trcs_certs.add((isd_as, ver))
                 cert_req = CertChainRequest.from_values(isd_as, ver)
                 logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
                 self.send_meta(cert_req, meta)
@@ -321,6 +328,7 @@ class SCIONElement(object):
         isd, ver = rep.trc.get_isd_ver()
         logging.info("TRC reply received for %sv%s" % (isd, ver))
         self.trust_store.add_trc(rep.trc, False)
+        self.requested_trcs_certs.discard((isd, ver))
         # Remove received TRC from map
         for path in list(self.paths_missing_trcs_certs_map):
             self.paths_missing_trcs_certs_map[path][0] \
@@ -361,6 +369,7 @@ class SCIONElement(object):
         isd_as, ver = rep.chain.get_leaf_isd_as_ver()
         logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
         self.trust_store.add_cert(rep.chain, False)
+        self.requested_trcs_certs.discard((isd_as, ver))
         # Remove received cert chain from map
         for path in list(self.paths_missing_trcs_certs_map):
             self.paths_missing_trcs_certs_map[path][0] \
