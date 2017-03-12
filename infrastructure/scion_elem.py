@@ -384,17 +384,17 @@ class SCIONElement(object):
         else:
             logging.warning("Could not find requested certificate %sv%s" %
                             (isd_as, ver))
-            try:
-                # TODO(Sezer): Request from certificate server when it
-                # is implemented
-                addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
-            except SCIONServiceLookupError as e:
-                logging.warning("Sending chain request failed: %s", e)
-                return
-            cert_req = CertChainRequest.from_values(isd_as, ver)
-            logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
-            meta = UDPMetadata.from_values(host=addr, port=port)
-            self.send_meta(cert_req, meta)
+            # try:
+            #     # TODO(Sezer): Request from certificate server when it
+            #     # is implemented
+            #     addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
+            # except SCIONServiceLookupError as e:
+            #     logging.warning("Sending chain request failed: %s", e)
+            #     return
+            # cert_req = CertChainRequest.from_values(isd_as, ver)
+            # logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
+            # meta = UDPMetadata.from_values(host=addr, port=port)
+            # self.send_meta(cert_req, meta)
 
     def _verify_path(self, paths):
         asm = paths.asm(-1)

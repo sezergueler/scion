@@ -440,8 +440,8 @@ def setup_main(name, parser=None):
     if not args.server:
         args.server = "169.254.0.3" if args.mininet else "127.0.0.3"
     as_list = _load_as_list()
-    srcs = _parse_locs(args.src_ia, as_list)
-    dsts = _parse_locs(args.dst_ia, as_list)
+    srcs = _parse_locs(args.src_ia, as_list) # [ISD_AS.from_values(1, 19)]
+    dsts = _parse_locs(args.dst_ia, as_list) # [ISD_AS.from_values(1, 14)]
     return args, srcs, dsts
 
 

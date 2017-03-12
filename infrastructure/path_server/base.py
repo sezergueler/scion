@@ -30,9 +30,15 @@ from external.expiring_dict import ExpiringDict
 from infrastructure.scion_elem import SCIONElement
 from lib.crypto.hash_tree import ConnectedHashTree
 from lib.defines import (
+    BEACON_SERVICE,
     HASHTREE_EPOCH_TIME,
     HASHTREE_TTL,
     PATH_SERVICE,
+)
+from lib.msg_meta import UDPMetadata
+from lib.packet.cert_mgmt import (
+    CertChainRequest,
+    TRCRequest,
 )
 from lib.packet.path_mgmt.rev_info import RevocationInfo
 from lib.packet.path_mgmt.seg_recs import PathRecordsReply, PathSegmentRecords
@@ -159,7 +165,36 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
             recs = PathSegmentRecords.from_raw(raw)
             for type_, pcb in recs.iter_pcbs():
                 count += 1
-                self._dispatch_segment_record(type_, pcb, from_zk=True)
+                trcs, certs = pcb.get_trcs_certs()
+                missing_trcs, missing_certs = \
+                    self._get_missing_trcs_certs_versions(trcs, certs)
+                if not missing_trcs and not missing_certs:
+                    self._dispatch_segment_record(type_, pcb, from_zk=True)
+                else:
+                    for isd, ver in missing_trcs:
+                        try:
+                            # TODO(Sezer): Request from certificate server when it
+                            # is implemented
+                            addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
+                        except SCIONServiceLookupError as e:
+                            logging.warning("Sending chain request failed: %s", e)
+                            return
+                        trc_req = TRCRequest.from_values(isd, ver)
+                        logging.info("Requesting %sv%s TRC", isd, ver)
+                        meta = UDPMetadata.from_values(host=addr, port=port)
+                        self.send_meta(trc_req, meta)
+                    for isd_as, ver in missing_certs:
+                        try:
+                            # TODO(Sezer): Request from certificate server when it
+                            # is implemented
+                            addr, port = self.dns_query_topo(BEACON_SERVICE)[0]
+                        except SCIONServiceLookupError as e:
+                            logging.warning("Sending chain request failed: %s", e)
+                            return
+                        cert_req = CertChainRequest.from_values(isd_as, ver)
+                        logging.info("Requesting %sv%s TRC", isd_as, ver)
+                        meta = UDPMetadata.from_values(host=addr, port=port)
+                        self.send_meta(cert_req, meta)
         if count:
             logging.debug("Processed %s PCBs from ZK", count)
 
