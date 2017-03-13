@@ -97,18 +97,20 @@ class CertChainsReply(CertMgmtBase):  # pragma: no cover
     P_CLS = P.CertChainsRep
 
     def __init__(self, p):
+        super().__init__(p)
         self.chains = p.chains
 
     @classmethod
     def from_values(cls, chains):
-        return cls(cls.P_CLS.new_message(chains=chains.pack(lz4_=True)))
+        p = cls.P_CLS.new_message()
+        p.init("chains", len(chains))
+        for i, chain in enumerate(chains):
+            p.chains[i] = chain.pack(lz4_=True)
+        return cls(p)
 
-    # def short_desc(self):
-    #     return "%sv%s" % self.chain.get_leaf_isd_as_ver()
-
-    # def __str__(self):
-    #     isd_as, ver = self.chain.get_leaf_isd_as_ver()
-    #     return "%s: ISD-AS: %s Version: %s" % (self.NAME, isd_as, ver)
+    def iter_chains(self):
+        for chain in self.p.chains:
+            yield CertificateChain.from_raw(chain, lz4_=True)
 
 
 class TRCRequest(CertMgmtRequest):
@@ -144,7 +146,7 @@ class TRCReply(CertMgmtBase):  # pragma: no cover
 
 def parse_certmgmt_payload(wrapper):  # pragma: no cover
     type_ = wrapper.which()
-    for cls_ in CertChainRequest, CertChainReply,  TRCRequest, TRCReply:
+    for cls_ in CertChainRequest, CertChainReply, CertChainsRequest, CertChainsReply, TRCRequest, TRCReply:
         if cls_.PAYLOAD_TYPE == type_:
             return cls_(getattr(wrapper, type_))
     raise SCIONParseError("Unsupported cert management type: %s" % type_)

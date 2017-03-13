@@ -17,7 +17,7 @@ struct CertChainsReq {
 }
 
 struct CertChainsRep {
-    chains @0 :List(CertChainRep);
+    chains @0 :List(Data);
 }
 
 struct TRCReq {
@@ -37,5 +37,6 @@ struct CertMgmt {
         trcReq @3 :TRCReq;
         trcRep @4 :TRCRep;
         certChainsReq @5 :CertChainsReq;
+        certChainsRep @6 :CertChainsRep;
     }
 }
