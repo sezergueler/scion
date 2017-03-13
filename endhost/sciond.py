@@ -170,7 +170,6 @@ class SCIONDaemon(SCIONElement):
             self.process_path(pcb, type_, "", meta)
 
     def continue_path_processing(self, pcb, type_, params):
-        added = set()
         map_ = {
             PST.UP: self._handle_up_seg,
             PST.DOWN: self._handle_down_seg,
@@ -180,10 +179,7 @@ class SCIONDaemon(SCIONElement):
         if not ret:
             return
         flags = (PATH_FLAG_SIBRA,) if pcb.is_sibra() else ()
-        added.add((ret, flags))
-        logging.debug("Added: %s", added)
-        for dst_ia, flags in added:
-            self.requests.put(((dst_ia, flags), None))
+        self.requests.put(((ret, flags), None))
 
     def _handle_up_seg(self, pcb):
         if self.addr.isd_as != pcb.last_ia():
