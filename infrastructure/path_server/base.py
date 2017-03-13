@@ -460,10 +460,8 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
         for pcb_dict in self._gen_prop_recs(self._segs_to_zk,
                                             limit=self.ZK_SHARE_LIMIT):
             seg_recs = PathSegmentRecords.from_values(pcb_dict)
-            logging.error(self._segs_to_zk)
             for _, pcb in seg_recs.iter_pcbs():
                 trcs, certs = pcb.get_trcs_certs()
-                logging.error(certs)
                 for isd_as, ver in certs.items():
                     if (isd_as, sorted(ver)[-1]) in self.shared_certs:
                         continue
