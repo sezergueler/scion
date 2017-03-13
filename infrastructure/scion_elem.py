@@ -358,10 +358,6 @@ class SCIONElement(object):
             except SCIONServiceLookupError as e:
                 logging.warning("Sending TRC request failed: %s", e)
                 return
-            trc_req = TRCRequest.from_values(isd, ver)
-            logging.info("Requesting %sv%s TRC", isd, ver)
-            meta = UDPMetadata.from_values(host=addr, port=port)
-            self.send_meta(trc_req, meta)
 
     def process_cert_chain_reply(self, rep, meta):
         """Process a certificate chain reply."""
