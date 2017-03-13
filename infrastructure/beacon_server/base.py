@@ -140,7 +140,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             PayloadClass.PCB: {None: self.handle_pcb},
             PayloadClass.IFID: {None: self.handle_ifid_packet},
             PayloadClass.CERT: {
-                CertMgmtType.CERT_CHAIN_REQ: self.process_cert_chain_request,
+                CertMgmtType.CERT_CHAINS_REQ: self.process_cert_chains_request,
                 CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_reply,
                 CertMgmtType.TRC_REPLY: self.process_trc_reply,
                 CertMgmtType.TRC_REQ: self.process_trc_request,

@@ -98,7 +98,7 @@ class PathServer(SCIONElement, metaclass=ABCMeta):
                 PMT.SYNC: self.handle_path_segment_record,
             },
             PayloadClass.CERT: {
-                CertMgmtType.CERT_CHAIN_REQ: self.process_cert_chain_request,
+                CertMgmtType.CERT_CHAINS_REQ: self.process_cert_chains_request,
                 CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_reply,
                 CertMgmtType.TRC_REPLY: self.process_trc_reply,
                 CertMgmtType.TRC_REQ: self.process_trc_request,

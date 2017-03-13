@@ -60,6 +60,8 @@ from lib.msg_meta import (
 from lib.packet.cert_mgmt import (
     CertChainReply,
     CertChainRequest,
+    CertChainsReply,
+    CertChainsRequest,
     TRCReply,
     TRCRequest,
 )
@@ -282,13 +284,15 @@ class SCIONElement(object):
         missing_certs = self.paths_missing_trcs_certs_map[path][0] \
             .missing_certs
         if missing_certs:
+            certs_to_req = []
             for isd_as, ver in missing_certs:
                 if (isd_as, ver) in self.requested_trcs_certs:
                     continue
                 self.requested_trcs_certs.add((isd_as, ver))
-                cert_req = CertChainRequest.from_values(isd_as, ver)
                 logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
-                self.send_meta(cert_req, meta)
+                certs_to_req.append((isd_as, ver))
+            certs_req = CertChainsRequest.from_values(certs_to_req)
+            self.send_meta(certs_req, meta)
         meta.close()
 
     def _get_missing_trcs_certs_versions(self, trc_versions, cert_versions):
@@ -389,6 +393,40 @@ class SCIONElement(object):
         else:
             logging.warning("Could not find requested certificate %sv%s" %
                             (isd_as, ver))
+
+    def process_cert_chains_reply(self, rep, meta):
+        """Process a certificate chain reply."""
+        assert isinstance(rep, CertChainsReply)
+        isd_as, ver = rep.chain.get_leaf_isd_as_ver()
+        logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
+        self.trust_store.add_cert(rep.chain, False)
+        self.requested_trcs_certs.discard((isd_as, ver))
+        # Remove received cert chain from map
+        for path in list(self.paths_missing_trcs_certs_map):
+            self.paths_missing_trcs_certs_map[path][0] \
+                .missing_certs.discard((isd_as, ver))
+            type_ = self.paths_missing_trcs_certs_map[path][1]
+            params = self.paths_missing_trcs_certs_map[path][2]
+            # If all required trcs and certs are received
+            if self.paths_missing_trcs_certs_map[path][0].empty():
+                del self.paths_missing_trcs_certs_map[path]
+                if self._verify_path(path):
+                    self.continue_path_processing(path, type_, params)
+
+    def process_cert_chains_request(self, req, meta):
+        """Process a certificate chain request."""
+        assert isinstance(req, CertChainsRequest)
+        cert_list = req.p.chains
+        for cert_req in cert_list:
+            assert isinstance(cert_req, CertChainRequest)
+            isd_as, ver = cert_req.isd_as(), cert_req.p.version
+            logging.info("Cert chain request received for %sv%s" % (isd_as, ver))
+            cert = self.trust_store.get_cert(isd_as, ver)
+            if cert:
+                self.send_meta(CertChainReply.from_values(cert), meta)
+            else:
+                logging.warning("Could not find requested certificate %sv%s" %
+                                (isd_as, ver))
 
     def _verify_path(self, paths):
         asm = paths.asm(-1)

@@ -76,6 +76,41 @@ class CertChainReply(CertMgmtBase):  # pragma: no cover
         return "%s: ISD-AS: %s Version: %s" % (self.NAME, isd_as, ver)
 
 
+class CertChainsRequest(CertMgmtBase):
+    NAME = "CertChainsRequest"
+    PAYLOAD_TYPE = CertMgmtType.CERT_CHAINS_REQ
+    P_CLS = P.CertChainsReq
+
+    @classmethod
+    def from_values(cls, certs_req):
+        p = cls.P_CLS.new_message()
+        p.init("chains", len(certs_req))
+        for i, (isd_as, ver) in enumerate(certs_req):
+            p.chains[i].isdas = int(isd_as)
+            p.chains[i].version = int(ver)
+        return cls(p)
+
+
+class CertChainsReply(CertMgmtBase):  # pragma: no cover
+    NAME = "CertChainsReply"
+    PAYLOAD_TYPE = CertMgmtType.CERT_CHAINS_REPLY
+    P_CLS = P.CertChainsRep
+
+    def __init__(self, p):
+        self.chains = p.chains
+
+    @classmethod
+    def from_values(cls, chains):
+        return cls(cls.P_CLS.new_message(chains=chains.pack(lz4_=True)))
+
+    # def short_desc(self):
+    #     return "%sv%s" % self.chain.get_leaf_isd_as_ver()
+
+    # def __str__(self):
+    #     isd_as, ver = self.chain.get_leaf_isd_as_ver()
+    #     return "%s: ISD-AS: %s Version: %s" % (self.NAME, isd_as, ver)
+
+
 class TRCRequest(CertMgmtRequest):
     NAME = "TRCRequest"
     PAYLOAD_TYPE = CertMgmtType.TRC_REQ
