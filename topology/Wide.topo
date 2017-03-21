@@ -156,3 +156,19 @@ links:
   - {a: 5-1, b: 5-4, ltype: PARENT}
   - {a: 5-2, b: 5-3, ltype: CORE}
   - {a: 5-3, b: 5-5, ltype: PARENT}
+neighbors:
+  1:
+    - 2
+    - 3
+  2:
+    - 1
+    - 3
+  3:
+    - 1
+    - 2
+    - 4
+  4:
+    - 3
+    - 5
+  5:
+    - 4

@@ -293,9 +293,7 @@ class CertGenerator(object):
         self._build_chains()
         self._iterate(self._gen_trc_entry)
         self._iterate(self._sign_trc)
-        self._rains_xsign_trc()
-        self._ca_xsign_trc()
-        self._core_as_xsign_trc()
+        self._gen_xsigs()
         self._iterate(self._gen_trc_files)
         return self.cert_files, self.trc_files
 
@@ -409,6 +407,13 @@ class CertGenerator(object):
             return
         trc = self.trcs[topo_id[0]]
         trc.sign(str(topo_id), self.priv_online_root_keys[topo_id])
+
+    def _gen_xsigs(self):
+        if "neighbors" not in self.topo_config:
+            return
+        self._rains_xsign_trc()
+        self._ca_xsign_trc()
+        self._core_as_xsign_trc()
 
     def _ca_xsign_trc(self):
         isd_ca = defaultdict(list)
