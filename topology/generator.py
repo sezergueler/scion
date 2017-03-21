@@ -172,8 +172,9 @@ class ConfigGenerator(object):
         """
         Generate all needed files.
         """
-        ca_private_key_files, ca_cert_files, ca_certs = self._generate_cas()
-        cert_files, trc_files = self._generate_certs_trcs(ca_certs)
+        ca_private_key_files, ca_cert_files, ca_certs, ca_keys = \
+            self._generate_cas()
+        cert_files, trc_files = self._generate_certs_trcs(ca_certs, ca_keys)
         topo_dicts, zookeepers, networks = self._generate_topology()
         self._generate_supervisor(topo_dicts, zookeepers)
         self._generate_zk_conf(zookeepers)
@@ -188,8 +189,8 @@ class ConfigGenerator(object):
         ca_gen = CA_Generator(self.topo_config)
         return ca_gen.generate()
 
-    def _generate_certs_trcs(self, ca_certs):
-        certgen = CertGenerator(self.topo_config, ca_certs)
+    def _generate_certs_trcs(self, ca_certs, ca_keys):
+        certgen = CertGenerator(self.topo_config, ca_certs, ca_keys)
         return certgen.generate()
 
     def _generate_topology(self):
@@ -265,9 +266,10 @@ class ConfigGenerator(object):
 
 
 class CertGenerator(object):
-    def __init__(self, topo_config, ca_certs):
+    def __init__(self, topo_config, ca_certs, ca_keys):
         self.topo_config = topo_config
         self.ca_certs = ca_certs
+        self.ca_keys = ca_keys
         self.sig_priv_keys = {}
         self.sig_pub_keys = {}
         self.enc_priv_keys = {}
@@ -288,6 +290,7 @@ class CertGenerator(object):
         self._build_chains()
         self._iterate(self._gen_trc_entry)
         self._iterate(self._sign_trc)
+        self._ca_xsign_trc()
         self._iterate(self._gen_trc_files)
         return self.cert_files, self.trc_files
 
@@ -391,6 +394,18 @@ class CertGenerator(object):
         trc = self.trcs[topo_id[0]]
         trc.sign(str(topo_id), self.priv_online_root_keys[topo_id])
 
+    def _ca_xsign_trc(self):
+        isd_ca = defaultdict(list)
+        for ca_name, ca_config in self.topo_config["CAs"].items():
+            isd_ca[ca_config["ISD"]].append(ca_name)
+        for isd, neighbors in self.topo_config["neighbors"].items():
+            for neighbor in neighbors:
+                ca_name = random.choice(isd_ca[neighbor])
+                trc = self.trcs[isd]
+                trc.signatures[ca_name] = crypto.sign(self.ca_keys[ca_name],
+                                                      trc._sig_input(),
+                                                      "sha256")
+
     def _gen_trc_files(self, topo_id, _):
         for isd in self.trcs:
             trc_path = get_trc_file_path("", isd, INITIAL_TRC_VERSION)
@@ -410,7 +425,8 @@ class CA_Generator(object):
         self._iterate(self._gen_ca)
         self._iterate(self._gen_private_key_files)
         self._iterate(self._gen_cert_files)
-        return self.ca_private_key_files, self.ca_cert_files, self.ca_certs
+        return (self.ca_private_key_files, self.ca_cert_files,
+                self.ca_certs, self.ca_key_pairs)
 
     def _iterate(self, f):
         for ca_name, ca_config in self.topo_config["CAs"].items():

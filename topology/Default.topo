@@ -133,3 +133,8 @@ links:
   - {a: 2-23, b: 2-25, ltype: PARENT}
   - {a: 2-23, b: 2-26, ltype: PARENT}
   - {a: 2-24, b: 2-26, ltype: PARENT}
+neighbors:
+  1:
+    - 2
+  2:
+    - 1
