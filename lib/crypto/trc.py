@@ -101,6 +101,8 @@ class TRC(object):
                 val = int(val)
             elif type_ in (dict, ):
                 val = copy.deepcopy(val)
+            elif type_ in (bytes, ):
+                val = base64.b64decode(val.encode('utf-8'))
             setattr(self, name, val)
         for subject in trc_dict[CORE_ASES_STRING]:
             key = trc_dict[CORE_ASES_STRING][subject][ONLINE_KEY_STRING]
@@ -231,6 +233,8 @@ class TRC(object):
                 d[k] = base64.b64encode(d[k].encode('utf-8')).decode('utf-8')
             elif self.FIELDS_MAP[k][1] == dict:
                 d[k] = self._encode_dict(d[k])
+            elif self.FIELDS_MAP[k][1] == bytes:
+                d[k] = base64.b64encode(d[k]).decode('utf-8')
         j = json.dumps(d, sort_keys=True, separators=(',', ':'))
         return j.encode('utf-8')
 
@@ -247,6 +251,8 @@ class TRC(object):
         Convert the instance to json format.
         """
         trc_dict = copy.deepcopy(self.dict(with_signatures))
+        trc_dict[ROOT_RAINS_KEY_STRING] = \
+            base64.b64encode(trc_dict[ROOT_RAINS_KEY_STRING]).decode('utf-8')
         core_ases = {}
         for subject in trc_dict[CORE_ASES_STRING]:
             d = trc_dict[CORE_ASES_STRING][subject]
