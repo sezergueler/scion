@@ -24,6 +24,7 @@ import time
 
 # External
 import lz4
+from OpenSSL import crypto
 
 # SCION
 from lib.crypto.asymcrypto import verify, sign
@@ -275,6 +276,57 @@ class TRC(object):
         trc_str = json.dumps(trc_dict, sort_keys=True, indent=4)
         return trc_str
 
+    def get_ca_sigs(self):
+        """
+        Returns a list of tuples (isd, ca name, ca signature) for all CA
+        signatures on this TRC
+        """
+        cas = []
+        for subject, signature in self.signatures.items():
+            type_, isd, ca_name = self._parse_subject_str(subject)
+            if type_ == "CA":
+                cas.append((int(isd), ca_name, signature))
+        return cas
+
+    def get_rains_sigs(self):
+        """
+        Returns a list of tuples (isd, rains signature) for all RAINS signatures
+        on this TRC
+        """
+        rains = []
+        for subject, signature in self.signatures.items():
+            type_, isd, _ = self._parse_subject_str(subject)
+            if type_ == "RAINS":
+                rains.append((int(isd), signature))
+        return rains
+
+    def get_as_sigs(self):
+        """
+        Returns a list of tuples (isd_as, as signature) for all AS signatures
+        on this TRC
+        """
+        ases = []
+        for subject, signature in self.signatures.items():
+            type_, isd_as, _ = self._parse_subject_str(subject)
+            if type_ == "AS":
+                ases.append((isd_as, signature))
+        return ases
+
+    def _parse_subject_str(self, subject):
+        sub = subject.split(',', 1)
+        # We have a CA or rains as subject
+        if sub[0].split(' ')[0] == "ISD":
+            isd = sub[0].split(' ')[1]
+            if sub[1].strip() == "RAINS":
+                return "RAINS", isd, ""
+            else:
+                ca = sub[1].split(':')[1].strip()
+                return "CA", isd, ca
+        # We have an AS
+        else:
+            isd_as = ISD_AS(sub[0])
+            return "AS", isd_as, ""
+
     def pack(self, lz4_=False):
         ret = self.to_json().encode('utf-8')
         if lz4_:
@@ -315,4 +367,59 @@ def verify_new_trc(old_trc, new_trc):
         invalid signatures")
         return False
     logging.debug("New TRC verified")
+    return True
+
+
+def verify_remote_trc(local_trc, remote_trc):
+    """
+    Check if remote TRC can be verified. i.e. Check if remote TRC
+    is signed correctly by the ISD local_trc beloongs to.
+
+    :returns: True if remote TRC can be verified, False otherwise
+    """
+    # TODO(Sezer): check e.g time somewhere...
+    # TODO(Sezer): private methods are called here
+    # Check core AS cross signatures
+    count_as_sigs = 0
+    as_sigs = remote_trc.get_as_sigs()
+    for isd_as, signature in as_sigs:
+        if isd_as[0] != local_trc.isd:
+            continue
+        pub_key = local_trc.core_ases[str(isd_as)][ONLINE_KEY_STRING]
+        if remote_trc._verify_signature(signature, pub_key):
+            count_as_sigs = count_as_sigs + 1
+    if count_as_sigs < 1:
+        logging.error("Remote TRC is not(correctly) signed by a local core AS")
+        return False
+
+    # Check RAINS cross signatures
+    count_rains_sigs = 0
+    rains_sigs = remote_trc.get_rains_sigs()
+    for isd, signature in rains_sigs:
+        if isd != local_trc.isd:
+            continue
+        pub_key = local_trc.root_rains_key
+        if remote_trc._verify_signature(signature, pub_key):
+            count_rains_sigs = count_rains_sigs + 1
+    if count_rains_sigs < 1:
+        logging.error("Remote TRC is not(correctly) signed by local RAINS")
+        return False
+
+    # Check CA cross signatures
+    count_ca_sigs = 0
+    ca_sigs = remote_trc.get_ca_sigs()
+    for isd, ca_name, signature in ca_sigs:
+        if isd != local_trc.isd:
+            continue
+        cert = crypto.load_certificate(crypto.FILETYPE_ASN1,
+                                       local_trc.root_cas[ca_name])
+        try:
+            crypto.verify(cert, signature, remote_trc._sig_input(), "sha256")
+            count_ca_sigs = count_ca_sigs + 1
+        except crypto.Error:
+            continue
+    if count_ca_sigs < 1:
+        logging.error("Remote TRC is not(correctly) signed by a local core CA")
+        return False
+
     return True
