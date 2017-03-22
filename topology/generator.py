@@ -408,18 +408,33 @@ class CertGenerator(object):
         trc = self.trcs[topo_id[0]]
         trc.sign(str(topo_id), self.priv_online_root_keys[topo_id])
 
-    def _gen_xsigs(self):
-        if "neighbors" not in self.topo_config:
-            return
-        self._rains_xsign_trc()
-        self._ca_xsign_trc()
-        self._core_as_xsign_trc()
+    def _get_neighbors(self):
+        """
+        Get ISD neighbor information from links contained in topology file
+        """
+        neighbor_isds = defaultdict(set)
+        for link in self.topo_config["links"]:
+            a = ISD_AS(link["a"])
+            b = ISD_AS(link["b"])
+            ltype = link["ltype"]
+            if ltype != "CORE":
+                continue
+            if a[0] != b[0]:
+                neighbor_isds[a[0]].add(b[0])
+                neighbor_isds[b[0]].add(a[0])
+        return neighbor_isds
 
-    def _ca_xsign_trc(self):
+    def _gen_xsigs(self):
+        neighbor_isds = self._get_neighbors()
+        self._rains_xsign_trc(neighbor_isds)
+        self._ca_xsign_trc(neighbor_isds)
+        self._core_as_xsign_trc(neighbor_isds)
+
+    def _ca_xsign_trc(self, neighbor_isds):
         isd_ca = defaultdict(list)
         for ca_name, ca_config in self.topo_config["CAs"].items():
             isd_ca[ca_config["ISD"]].append(ca_name)
-        for isd, neighbors in self.topo_config["neighbors"].items():
+        for isd, neighbors in neighbor_isds.items():
             for neighbor in neighbors:
                 ca_name = random.choice(isd_ca[neighbor])
                 trc = self.trcs[isd]
@@ -428,22 +443,22 @@ class CertGenerator(object):
                                                       trc._sig_input(),
                                                       "sha256")
 
-    def _core_as_xsign_trc(self):
+    def _core_as_xsign_trc(self, neighbor_isds):
         isd_ases = defaultdict(list)
         for isd_as, as_config in self.topo_config["ASes"].items():
             if not as_config.get('core', False):
                 continue
             isd = ISD_AS(isd_as)[0]
             isd_ases[isd].append(isd_as)
-        for isd, neighbors in self.topo_config["neighbors"].items():
+        for isd, neighbors in neighbor_isds.items():
             for neighbor in neighbors:
                 isd_as = random.choice(isd_ases[neighbor])
                 trc = self.trcs[isd]
                 trc.sign(str(isd_as),
                          self.priv_online_root_keys[ISD_AS(isd_as)])
 
-    def _rains_xsign_trc(self):
-        for isd, neighbors in self.topo_config["neighbors"].items():
+    def _rains_xsign_trc(self, neighbor_isds):
+        for isd, neighbors in neighbor_isds.items():
             for neighbor in neighbors:
                 trc = self.trcs[isd]
                 subject = "ISD %s, RAINS" % neighbor
