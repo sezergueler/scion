@@ -180,7 +180,7 @@ class TRC(object):
         return trc
 
     def sign(self, isd_as, sig_priv_key):
-        data = self._sig_input()
+        data = self.sig_input()
         self.signatures[isd_as] = sign(data, sig_priv_key)
 
     def verify(self, old_trc):
@@ -201,7 +201,7 @@ class TRC(object):
         # Add every signer to this set whose signature was verified successfully
         for signer in signatures:
             public_key = self.core_ases[signer].subject_sig_key_raw
-            if self._verify_signature(signatures[signer], public_key):
+            if self.verify_signature(signatures[signer], public_key):
                 valid_signature_signers.add(signer)
             else:
                 logging.warning("TRC contains a signature which could not \
@@ -214,7 +214,7 @@ class TRC(object):
         logging.debug("TRC verified.")
         return True
 
-    def _verify_signature(self, signature, public_key):
+    def verify_signature(self, signature, public_key):
         """
         Checks if the signature can be verified with the given public key for a
         single signature
@@ -223,11 +223,11 @@ class TRC(object):
             given key, False otherwise
         :rtype bool
         """
-        if not verify(self._sig_input(), signature, public_key):
+        if not verify(self.sig_input(), signature, public_key):
             return False
         return True
 
-    def _sig_input(self):
+    def sig_input(self):
         d = self.dict(False)
         for k in d:
             if self.FIELDS_MAP[k][1] == str:
@@ -370,56 +370,104 @@ def verify_new_trc(old_trc, new_trc):
     return True
 
 
-def verify_remote_trc(local_trc, remote_trc):
+def verify_remote(local_trc, verified_rem_trcs, remote_trc):
+    """
+    Checks if remote TRC can be verified using local TRC or already
+    verified remote TRCs.
+
+    :param TRC local_trc: The local TRC to this ISD.
+    :param List(TRC) verified_rem_trcs: Already verified remote TRCs.
+    :param TRC remote_trc: Remote TRC to verify.
+    :returns: True if remote_trc can be verified, false otherwise.
+    """
+    # Try to verify with local TRC
+    if verify_remote_trc(local_trc, remote_trc):
+        return True
+    # Try to verify with verified remote TRCs
+    for trc in verified_rem_trcs:
+        if verify_remote_trc(trc, remote_trc):
+            return True
+    return False
+
+
+def verify_remote_trc(ver_trc, remote_trc):
     """
     Check if remote TRC can be verified. i.e. Check if remote TRC
-    is signed correctly by the ISD local_trc beloongs to.
+    is signed correctly by the ISD ver_trc belongs to.
 
+    :param TRC ver_trc: Already verified TRC, could be local or remote.
+    :param TRC remote_trc: Remote TRC to be verified.
     :returns: True if remote TRC can be verified, False otherwise
     """
-    # TODO(Sezer): check e.g time somewhere...
-    # TODO(Sezer): private methods are called here
-    # Check core AS cross signatures
-    count_as_sigs = 0
+    assert isinstance(ver_trc, TRC)
+    assert isinstance(remote_trc, TRC)
+    if ver_trc.isd == remote_trc.isd:
+        logging.warning("TRCs are from the same ISD.")
+        return False
+    return (verify_core_as_xsigs(ver_trc, remote_trc) and
+            verify_rains_xsigs(ver_trc, remote_trc) and
+            verify_ca_xsigs(ver_trc, remote_trc))
+
+
+def verify_core_as_xsigs(ver_trc, remote_trc):
+    """
+    Checks if remote_trc is signed by a core AS in ver_trc.
+
+    :param TRC ver_trc: Already verified TRC, could be local or remote.
+    :param TRC remote_trc: Remote TRC to be verified.
+    :returns: True if remote_trc has a valid signature of a core AS in ver_trc.
+              False otherwise.
+    """
     as_sigs = remote_trc.get_as_sigs()
     for isd_as, signature in as_sigs:
-        if isd_as[0] != local_trc.isd:
+        if isd_as[0] != ver_trc.isd:
             continue
-        pub_key = local_trc.core_ases[str(isd_as)][ONLINE_KEY_STRING]
-        if remote_trc._verify_signature(signature, pub_key):
-            count_as_sigs = count_as_sigs + 1
-    if count_as_sigs < 1:
-        logging.error("Remote TRC is not(correctly) signed by a local core AS")
-        return False
+        pub_key = ver_trc.core_ases[str(isd_as)][ONLINE_KEY_STRING]
+        if remote_trc.verify_signature(signature, pub_key):
+            return True
+    logging.error("Remote TRC is not(correctly) signed by a local core AS")
+    return False
 
-    # Check RAINS cross signatures
-    count_rains_sigs = 0
+
+def verify_rains_xsigs(ver_trc, remote_trc):
+    """
+    Checks if remote_trc is signed by RAINS in ver_trc.
+
+    :param TRC ver_trc: Already verified TRC, could be local or remote.
+    :param TRC remote_trc: Remote TRC to be verified.
+    :returns: True if remote_trc has a valid signature of RAINS in ver_trc.
+              False otherwise.
+    """
     rains_sigs = remote_trc.get_rains_sigs()
     for isd, signature in rains_sigs:
-        if isd != local_trc.isd:
+        if isd != ver_trc.isd:
             continue
-        pub_key = local_trc.root_rains_key
-        if remote_trc._verify_signature(signature, pub_key):
-            count_rains_sigs = count_rains_sigs + 1
-    if count_rains_sigs < 1:
-        logging.error("Remote TRC is not(correctly) signed by local RAINS")
-        return False
+        pub_key = ver_trc.root_rains_key
+        if remote_trc.verify_signature(signature, pub_key):
+            return True
+    logging.error("Remote TRC is not(correctly) signed by local RAINS")
+    return False
 
-    # Check CA cross signatures
-    count_ca_sigs = 0
+
+def verify_ca_xsigs(ver_trc, remote_trc):
+    """
+    Checks if remote_trc is signed by a CA in ver_trc.
+
+    :param TRC ver_trc: Already verified TRC, could be local or remote.
+    :param TRC remote_trc: Remote TRC to be verified.
+    :returns: True if remote_trc has a valid signature of a CA in ver_trc.
+              False otherwise.
+    """
     ca_sigs = remote_trc.get_ca_sigs()
     for isd, ca_name, signature in ca_sigs:
-        if isd != local_trc.isd:
+        if isd != ver_trc.isd:
             continue
         cert = crypto.load_certificate(crypto.FILETYPE_ASN1,
-                                       local_trc.root_cas[ca_name])
+                                       ver_trc.root_cas[ca_name])
         try:
-            crypto.verify(cert, signature, remote_trc._sig_input(), "sha256")
-            count_ca_sigs = count_ca_sigs + 1
+            crypto.verify(cert, signature, remote_trc.sig_input(), "sha256")
+            return True
         except crypto.Error:
             continue
-    if count_ca_sigs < 1:
-        logging.error("Remote TRC is not(correctly) signed by a local core CA")
-        return False
-
-    return True
+    logging.error("Remote TRC is not(correctly) signed by a local core CA")
+    return False
