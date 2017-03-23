@@ -370,7 +370,7 @@ def verify_new_trc(old_trc, new_trc):
     return True
 
 
-def verify_remote(local_trc, verified_rem_trcs, remote_trc):
+def verify_remote_trc(local_trc, verified_rem_trcs, remote_trc):
     """
     Checks if remote TRC can be verified using local TRC or already
     verified remote TRCs.
@@ -381,16 +381,16 @@ def verify_remote(local_trc, verified_rem_trcs, remote_trc):
     :returns: True if remote_trc can be verified, false otherwise.
     """
     # Try to verify with local TRC
-    if verify_remote_trc(local_trc, remote_trc):
+    if verify_remote_trc_xsigs(local_trc, remote_trc):
         return True
     # Try to verify with verified remote TRCs
     for trc in verified_rem_trcs:
-        if verify_remote_trc(trc, remote_trc):
+        if verify_remote_trc_xsigs(trc, remote_trc):
             return True
     return False
 
 
-def verify_remote_trc(ver_trc, remote_trc):
+def verify_remote_trc_xsigs(ver_trc, remote_trc):
     """
     Check if remote TRC can be verified. i.e. Check if remote TRC
     is signed correctly by the ISD ver_trc belongs to.
@@ -425,7 +425,8 @@ def verify_core_as_xsigs(ver_trc, remote_trc):
         pub_key = ver_trc.core_ases[str(isd_as)][ONLINE_KEY_STRING]
         if remote_trc.verify_signature(signature, pub_key):
             return True
-    logging.error("Remote TRC is not(correctly) signed by a local core AS")
+    logging.warning("Remote TRC(ISD %s) is not(correctly) signed by a core"
+                    " AS(ISD %s)" % (remote_trc.isd, ver_trc.isd))
     return False
 
 
@@ -445,7 +446,8 @@ def verify_rains_xsigs(ver_trc, remote_trc):
         pub_key = ver_trc.root_rains_key
         if remote_trc.verify_signature(signature, pub_key):
             return True
-    logging.error("Remote TRC is not(correctly) signed by local RAINS")
+    logging.warning("Remote TRC(ISD %s) is not(correctly) signed by RAINS"
+                    "(ISD %s)" % (remote_trc.isd, ver_trc.isd))
     return False
 
 
@@ -469,5 +471,6 @@ def verify_ca_xsigs(ver_trc, remote_trc):
             return True
         except crypto.Error:
             continue
-    logging.error("Remote TRC is not(correctly) signed by a local core CA")
+    logging.warning("Remote TRC(ISD %s) is not(correctly) signed by a CA"
+                    "(ISD %s)" % (remote_trc.isd, ver_trc.isd))
     return False

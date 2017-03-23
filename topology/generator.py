@@ -440,7 +440,7 @@ class CertGenerator(object):
                 trc = self.trcs[isd]
                 subject = "ISD %s, CA: %s" % (neighbor, ca_name)
                 trc.signatures[subject] = crypto.sign(self.ca_keys[ca_name],
-                                                      trc._sig_input(),
+                                                      trc.sig_input(),
                                                       "sha256")
 
     def _core_as_xsign_trc(self, neighbor_isds):
