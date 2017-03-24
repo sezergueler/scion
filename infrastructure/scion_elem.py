@@ -55,6 +55,10 @@ from lib.msg_meta import (
     TCPMetadata,
     UDPMetadata,
 )
+from lib.packet.cert_mgmt import (
+    TRCxSigReply,
+    TRCxSigRequest,
+)
 from lib.packet.ext.one_hop_path import OneHopPathExt
 from lib.packet.host_addr import HostAddrNone
 from lib.packet.packet_base import PayloadRaw
@@ -207,6 +211,45 @@ class SCIONElement(object):
         """
         for trc in self.trust_store.get_trcs():
             self._core_ases[trc.isd] = trc.get_core_ases()
+
+    def process_trc_xsig_req(self, req, meta):
+        """
+        Process the TRC cross-signing request.
+        """
+        assert isinstance(req, TRCxSigRequest)
+        # Get the current TRC of the isd this request belongs to
+        isd = req.trc.isd
+        ver = req.trc.version
+        curr_rem_trc = self.trust_store.get_trc(isd, ver - 1)
+        if not curr_rem_trc:
+            logging.warning("%sTRCv%s can not be signed, %sTRCv%s not found"
+                            % (isd, ver, isd, ver - 1))
+        # TODO(Sezer): Implement this function
+        if try_to_xsign_trc(req.trc):
+            # TODO(Sezer): Preload/load private key
+            signed_trc = req.trc.sign(self.addr.isd_as, self.sig_priv_key)
+            trc_xsig_rep = TRCxSigReply.from_values(signed_trc)
+            self.send_meta(trc_xsig_rep, meta)
+        meta.close()
+
+    def process_trc_xsig_rep(self, rep, meta):
+        """
+        Process the TRC cross-signing reply.
+        """
+        assert isinstance(rep, TRCxSigReply)
+        # Check if correctly signed
+        isd_as = meta.get_addr().isd_as
+        xsig = rep.trc.signatures[str(isd_as)]
+        if not xsig:
+            logging.error("TRC xsig reply does not contain a valid "
+                          "signature for %s" % isd_as)
+            return
+        rem_trc = self.trust_store.get_trc(isd_as[0])
+        if not rem_trc:
+            logging.error("TRC xsig reply received from %s but no "
+                          "TRC for ISD %s found" % (isd_as, isd_as[0]))
+        # pub_key = ...
+        # if rep.trc.verify(xsig, pub_key)
 
     def is_core_as(self, isd_as=None):
         if not isd_as:

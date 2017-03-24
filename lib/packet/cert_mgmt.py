@@ -107,6 +107,23 @@ class TRCReply(CertMgmtBase):  # pragma: no cover
             self.NAME, isd, ver, self.trc)
 
 
+class TRCxSigRequest(CertMgmtBase):
+    NAME = "TRCxSigRequest"
+    PAYLOAD_TYPE = CertMgmtType.TRC_XSIG_REQ
+    P_CLS = P.TRCxSigReq
+
+
+class TRCxSigReply(CertMgmtBase):
+    # TODO(Sezer): Check if it makes sense to inherit from TRCReply
+    NAME = "TRCxSigReply"
+    PAYLOAD_TYPE = CertMgmtType.TRC_XSIG_REP
+    P_CLS = P.TRCxSigRep
+
+    @classmethod
+    def from_values(cls, trc):
+        return cls(cls.P_CLS.new_message(trc=trc.pack(lz4_=True)))
+
+
 def parse_certmgmt_payload(wrapper):  # pragma: no cover
     type_ = wrapper.which()
     for cls_ in CertChainRequest, CertChainReply,  TRCRequest, TRCReply:

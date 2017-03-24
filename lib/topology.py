@@ -143,6 +143,7 @@ class Topology(object):
         self.peer_border_routers = []
         self.core_border_routers = []
         self.zookeepers = []
+        self.nb_links = []
 
     @classmethod
     def from_file(cls, topology_file):  # pragma: no cover
@@ -178,6 +179,7 @@ class Topology(object):
         self._parse_srv_dicts(topology)
         self._parse_router_dicts(topology)
         self._parse_zk_dicts(topology)
+        self._parse_nb_list(topology)
 
     def _parse_srv_dicts(self, topology):
         for type_, list_ in (
@@ -205,6 +207,10 @@ class Topology(object):
             haddr = haddr_parse_interface(zk['Addr'])
             zk_host = "[%s]:%s" % (haddr, zk['Port'])
             self.zookeepers.append(zk_host)
+
+    def _parse_nb_list(self, topology):
+        if self.is_core_as:
+            self.nb_links = topology['NeighborLinks']
 
     def get_all_border_routers(self):
         """

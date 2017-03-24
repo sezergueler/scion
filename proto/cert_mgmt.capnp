@@ -21,6 +21,14 @@ struct TRCRep {
     trc @0 :Data;
 }
 
+struct TRCxSigReq {
+    trc @0 :Data;
+}
+
+struct TRCxSigRep {
+    trc @0 :Data;
+}
+
 struct CertMgmt {
     union {
         unset @0 :Void;
@@ -28,5 +36,7 @@ struct CertMgmt {
         certChainRep @2 :CertChainRep;
         trcReq @3 :TRCReq;
         trcRep @4 :TRCRep;
+        trcXsigReq @5 :TRCxSigReq;
+        trcXsigRep @6 :TRCxSigRep;
     }
 }

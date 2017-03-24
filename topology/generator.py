@@ -564,6 +564,7 @@ class TopoGenerator(object):
         self.as_list = defaultdict(list)
         self.links = defaultdict(list)
         self.ifid_map = {}
+        self.nb_isds = defaultdict(set)
 
     def _reg_addr(self, topo_id, elem_id):
         subnet = self.subnet_gen.register(topo_id)
@@ -614,6 +615,10 @@ class TopoGenerator(object):
             self.ifid_map[str(a)][a_desc] = b_desc
             self.ifid_map.setdefault(str(b), {})
             self.ifid_map[str(b)][b_desc] = a_desc
+            # Extract neighbor isd information
+            if a[0] != b[0]:
+                self.nb_isds[a[0]].add(str(b))
+                self.nb_isds[b[0]].add(str(a))
 
     def _generate_as_topo(self, topo_id, as_conf):
         mtu = as_conf.get('mtu', self.default_mtu)
@@ -627,6 +632,7 @@ class TopoGenerator(object):
         self._gen_srv_entries(topo_id, as_conf)
         self._gen_br_entries(topo_id)
         self._gen_zk_entries(topo_id, as_conf)
+        self._gen_nb_entries(topo_id, as_conf)
 
     def _gen_srv_entries(self, topo_id, as_conf):
         for conf_key, def_num, nick, topo_key in (
@@ -696,6 +702,15 @@ class TopoGenerator(object):
             'Addr': addr,
             'Port': zk.clientPort,
         }
+
+    def _gen_nb_entries(self, topo_id, as_conf):
+        if not as_conf.get('core', False):
+            return
+        neighbors = []
+        for nb in self.nb_isds[topo_id[0]]:
+            if self.topo_config["ASes"][nb].get('core', False):
+                neighbors.append(nb)
+        self.topo_dicts[topo_id]['NeighborLinks'] = neighbors
 
     def _generate_as_list(self, topo_id, as_conf):
         if as_conf.get('core', False):
