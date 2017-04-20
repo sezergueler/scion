@@ -137,6 +137,7 @@ class ASMarking(Cerealizable):
             b.append(pcbm.sig_pack5())
         b.append(self.p.hashTreeRoot)
         b.append(self.p.mtu.to_bytes(2, 'big'))
+        b.append(self.p.chain)
         return b"".join(b)
 
     def short_desc(self):
