@@ -399,7 +399,7 @@ class SCIONDaemon(SCIONElement):
                     self.requested_paths[key] = threading.Event()
                     self._fetch_segments(key)
                 e = self.requested_paths[key]
-            if not e.wait(self.TIMEOUT):
+            if not e.wait(self.PATH_REQ_TOUT):
                 logging.error("Query timed out for %s", dst_ia)
                 return [], SCIONDPathReplyError.PS_TIMEOUT
             paths = self.path_resolution(dst_ia, flags=flags)
