@@ -191,7 +191,12 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                 pcb.copy(), r.interface.isd_as, r.interface.if_id)
             if not new_pcb:
                 continue
+            measurement_file = open(os.path.join(self.conf_dir, "measurements"), 'a')
             self.send_meta(new_pcb, meta)
+            if str(r.interface.isd_as) == '1-16':
+                measurement_file.write(str(time.time()))
+                measurement_file.write("\n")
+            measurement_file.close()
             logging.info("Downstream PCB propagated to %s via IF %s",
                          r.interface.isd_as, r.interface.if_id)
 
@@ -267,6 +272,10 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             logging.debug("Segment dropped due to looping: %s" %
                           pcb.short_desc())
             return
+        measurement_file = open(os.path.join(self.conf_dir, "measurement_stop"), 'a')
+        measurement_file.write(str(time.time()))
+        measurement_file.write("\n")
+        measurement_file.close()
         seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
         self.process_path_seg(seg_meta)
 
