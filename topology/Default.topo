@@ -30,7 +30,7 @@ ASes:
         electionPort: 4008
   1-13:
     core: true
-    beacon_servers: 1
+    beacon_servers: 2
     certificate_servers: 3
   1-14:
     path_servers: 1
@@ -53,6 +53,10 @@ ASes:
     cert_issuer: 1-16
   1-10:
     cert_issuer: 1-19
+  1-20:
+    cert_issuer: 1-10
+  1-21:
+    cert_issuer: 1-20
   2-21:
     core: true
     mtu: 1280
@@ -126,6 +130,8 @@ links:
   - {a: 1-15, b: 1-18, ltype: PARENT}
   - {a: 1-16, b: 1-19, ltype: PARENT}
   - {a: 1-19, b: 1-10, ltype: PARENT}
+  - {a: 1-10, b: 1-20, ltype: PARENT}
+  - {a: 1-20, b: 1-21, ltype: PARENT}
   - {a: 2-21, b: 2-22, ltype: CORE}
   - {a: 2-21, b: 2-23, ltype: PARENT}
   - {a: 2-22, b: 2-24, ltype: PARENT}
