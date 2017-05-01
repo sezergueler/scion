@@ -37,6 +37,10 @@ class PathSegMeta(object):
         self.type = type_
         self.params = params
         self.cnt = cnt
+        self.find = 0
+        self.req = 0
+        self.ans = 0
+        self.ver = 0
 
     def verifiable(self):
         with self.miss_cert_lock and self.miss_trc_lock:

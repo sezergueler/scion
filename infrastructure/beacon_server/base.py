@@ -25,11 +25,9 @@ import time
 from collections import defaultdict
 from abc import ABCMeta, abstractmethod
 from threading import Lock, RLock
-from memory_profiler import profile
 
 # External packages
 from external.expiring_dict import ExpiringDict
-from pympler import asizeof
 
 # SCION
 from infrastructure.scion_elem import SCIONElement
@@ -258,7 +256,6 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             self.handle_pcb(pcb)
         logging.debug("Processed %s PCBs from ZK", len(pcbs))
 
-    @profile
     def handle_pcb(self, pcb, meta=None):
         """
         Handles pcbs received from the network.
@@ -279,7 +276,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         #     self.cnt = 1
         # else:
         #     seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
-        logging.error(asizeof.asizeof(pcb))
+        # logging.error(asizeof.asizeof(pcb))
         self.pcbs_dict[pcb.get_timestamp()] = time.time()
         seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
         self.process_path_seg(seg_meta)
@@ -291,18 +288,39 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         """
         pcb = seg_meta.seg
         # if seg_meta.cnt == 0:
-        #     s = self.conf_dir.split("/")[-1]
-        #     # measurement_file = open(os.path.join(self.conf_dir, "measurement_pcb"), 'a')
-        #     measurement_file = open(s, 'a')
-        #     measurement_file.write(str(time.time() - self.pcbs_dict[pcb.get_timestamp()]))
-        #     measurement_file.write("\n")
-        #     measurement_file.close()
         s = self.conf_dir.split("/")[-1]
-        # measurement_file = open(os.path.join(self.conf_dir, "measurement_pcb"), 'a')
+        t = time.time()
         measurement_file = open(s, 'a')
-        measurement_file.write(str(time.time() - self.pcbs_dict[pcb.get_timestamp()]))
+        measurement_file.write(str(t - self.pcbs_dict[pcb.get_timestamp()]))
         measurement_file.write("\n")
         measurement_file.close()
+
+            # measurement_file = open(s + "_find", 'a')
+            # measurement_file.write(str(seg_meta.find))
+            # measurement_file.write("\n")
+            # measurement_file.close()
+            
+            # measurement_file = open(s + "_req", 'a')
+            # measurement_file.write(str(seg_meta.req))
+            # measurement_file.write("\n")
+            # measurement_file.close()
+
+            # measurement_file = open(s + "_ans", 'a')
+            # measurement_file.write(str(seg_meta.ans))
+            # measurement_file.write("\n")
+            # measurement_file.close()
+
+            # measurement_file = open(s + "_ver", 'a')
+            # measurement_file.write(str(seg_meta.ver))
+            # measurement_file.write("\n")
+            # measurement_file.close()
+
+        # s = self.conf_dir.split("/")[-1]
+        # # measurement_file = open(os.path.join(self.conf_dir, "measurement_pcb"), 'a')
+        # measurement_file = open(s, 'a')
+        # measurement_file.write(str(time.time() - self.pcbs_dict[pcb.get_timestamp()]))
+        # measurement_file.write("\n")
+        # measurement_file.close()
         if seg_meta.meta:
             # Segment was received from network, not from zk. Share segment
             # with other beacon servers in this AS.
