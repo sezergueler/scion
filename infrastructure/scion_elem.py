@@ -267,18 +267,28 @@ class SCIONElement(object):
             if seg_meta not in self.unverified_segs:
                 self.unverified_segs.add(seg_meta)
         # Find missing TRCs and certificates
+        if seg_meta.cnt == 0:
+            seg_meta.find = time.time()
         missing_trcs = self._missing_trc_versions(seg_meta.trc_vers)
         missing_certs = self._missing_cert_versions(seg_meta.cert_vers)
         # Update missing TRCs/certs map
         seg_meta.missing_trcs.update(missing_trcs)
         seg_meta.missing_certs.update(missing_certs)
+        if seg_meta.cnt == 0:
+            seg_meta.find = time.time() - seg_meta.find
+
         # If all necessary TRCs/certs available, try to verify
         if seg_meta.verifiable():
             self._try_to_verify_seg(seg_meta)
             return
         # Otherwise request missing trcs, certs
+        if seg_meta.cnt == 0:
+            seg_meta.req = time.time()
         self.request_missing_trcs(seg_meta)
         self.request_missing_certs(seg_meta)
+        if seg_meta.cnt == 0:
+            seg_meta.ans = time.time()
+            seg_meta.req = time.time() - seg_meta.req
         if seg_meta.meta:
             seg_meta.meta.close()
 
@@ -287,9 +297,13 @@ class SCIONElement(object):
         If this pcb/path segment can be verified, call the function
         to process a verified pcb/path segment
         """
+        if seg_meta.cnt == 0:
+            seg_meta.ver = time.time()
         if self._verify_path_seg(seg_meta):
             with self.unv_segs_lock:
                 self.unverified_segs.discard(seg_meta)
+            if seg_meta.cnt == 0:
+                seg_meta.ver = time.time() - seg_meta.ver
             if seg_meta.meta:
                 seg_meta.meta.close()
             seg_meta.callback(seg_meta)
@@ -419,7 +433,7 @@ class SCIONElement(object):
         meta.close()
         isd, ver = rep.trc.get_isd_ver()
         logging.info("TRC reply received for %sv%s" % (isd, ver))
-        self.trust_store.add_trc(rep.trc, True)
+        self.trust_store.add_trc(rep.trc, False)
         # Update core ases for isd this trc belongs to
         max_local_ver = self.trust_store.get_trc(rep.trc.isd)
         if max_local_ver.version == rep.trc.version:
@@ -446,6 +460,8 @@ class SCIONElement(object):
                     seg_meta.missing_trcs.discard((isd, ver))
                 # If all required trcs and certs are received
                 if seg_meta.verifiable():
+                    if seg_meta.cnt == 0:
+                        seg_meta.ans = time.time() - seg_meta.ans
                     self._try_to_verify_seg(seg_meta)
 
     def process_trc_request(self, req, meta):
@@ -484,7 +500,7 @@ class SCIONElement(object):
             rep = CertChainReply.from_values(rep_)
             isd_as, ver = rep.chain.get_leaf_isd_as_ver()
             logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
-            self.trust_store.add_cert(rep.chain, True)
+            self.trust_store.add_cert(rep.chain, False)
             with self.req_certs_lock:
                 self.requested_certs.discard((isd_as, ver))
             # Remove received cert chain from map
@@ -507,6 +523,8 @@ class SCIONElement(object):
                     seg_meta.missing_certs.discard((isd_as, ver))
                 # If all required trcs and certs are received.
                 if seg_meta.verifiable():
+                    if seg_meta.cnt == 0:
+                        seg_meta.ans = time.time() - seg_meta.ans
                     self._try_to_verify_seg(seg_meta)
 
     # def process_cert_chain_request(self, req, meta):

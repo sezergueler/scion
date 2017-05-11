@@ -128,6 +128,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         self._next_tree = None
         self._init_hash_tree()
         self.ifid_state = {}
+        self.cnt = 0
         for ifid in self.ifid2br:
             self.ifid_state[ifid] = InterfaceState()
         self.ifid_state_lock = RLock()
@@ -163,6 +164,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         self.local_rev_cache = ExpiringDict(1000, HASHTREE_EPOCH_TIME +
                                             HASHTREE_EPOCH_TOLERANCE)
         self._rev_seg_lock = RLock()
+        self.pcbs_dict = defaultdict(float)
 
     def _init_hash_tree(self):
         ifs = list(self.ifid2br.keys())
@@ -267,7 +269,13 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             logging.debug("Segment dropped due to looping: %s" %
                           pcb.short_desc())
             return
-        seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
+        if self.cnt == 0:
+            self.pcbs_dict[pcb.get_timestamp()] = time.time()
+            seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta, cnt=0)
+            self.cnt = 1
+        else:
+            seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
+        # seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
         self.process_path_seg(seg_meta)
 
     def continue_seg_processing(self, seg_meta):
@@ -276,6 +284,35 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         this function gets called to continue the processing for the pcb.
         """
         pcb = seg_meta.seg
+
+        if seg_meta.cnt == 0:
+            s = self.conf_dir.split("/")[-1]
+            t = time.time()
+            measurement_file = open(s, 'a')
+            measurement_file.write(str(t - self.pcbs_dict[pcb.get_timestamp()]))
+            measurement_file.write("\n")
+            measurement_file.close()
+
+            measurement_file = open(s + "_find", 'a')
+            measurement_file.write(str(seg_meta.find))
+            measurement_file.write("\n")
+            measurement_file.close()
+                    
+            measurement_file = open(s + "_req", 'a')
+            measurement_file.write(str(seg_meta.req))
+            measurement_file.write("\n")
+            measurement_file.close()
+
+            measurement_file = open(s + "_ans", 'a')
+            measurement_file.write(str(seg_meta.ans))
+            measurement_file.write("\n")
+            measurement_file.close()
+
+            measurement_file = open(s + "_ver", 'a')
+            measurement_file.write(str(seg_meta.ver))
+            measurement_file.write("\n")
+            measurement_file.close()
+
         if seg_meta.meta:
             # Segment was received from network, not from zk. Share segment
             # with other beacon servers in this AS.
