@@ -31,7 +31,8 @@ from lib.defines import CERTIFICATE_SERVICE, SCION_UDP_EH_DATA_PORT
 from lib.main import main_default, main_wrapper
 from lib.packet.cert_mgmt import (
     CertChainReply,
-    CertChainRequest,
+    CertChainsRequest,
+    CertChainsReply,
     TRCReply,
     TRCRequest,
 )
@@ -66,17 +67,14 @@ class CertServer(SCIONElement):
         :param str conf_dir: configuration directory.
         """
         super().__init__(server_id, conf_dir)
-        self.cc_requests = RequestHandler.start(
-            "CC Requests", self._check_cc, self._fetch_cc, self._reply_cc,
-        )
         self.trc_requests = RequestHandler.start(
             "TRC Requests", self._check_trc, self._fetch_trc, self._reply_trc,
         )
 
         self.CTRL_PLD_CLASS_MAP = {
             PayloadClass.CERT: {
-                CertMgmtType.CERT_CHAIN_REQ: self.process_cert_chain_request,
-                CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_reply,
+                CertMgmtType.CERT_CHAINS_REQ: self.process_cert_chains_request,
+                CertMgmtType.CERT_CHAINS_REPLY: self.process_cert_chains_reply,
                 CertMgmtType.TRC_REQ: self.process_trc_request,
                 CertMgmtType.TRC_REPLY: self.process_trc_reply,
             },
@@ -131,8 +129,9 @@ class CertServer(SCIONElement):
         """
         for raw in raw_entries:
             cert = CertificateChain.from_raw(raw.decode('utf-8'))
-            rep = CertChainReply.from_values(cert)
-            self.process_cert_chain_reply(rep, None, from_zk=True)
+            # rep = CertChainReply.from_values(cert)
+            # self.process_cert_chain_reply(rep, None, from_zk=True)
+            self.trust_store.add_cert(cert)
         logging.debug("Processed %s certs from ZK", len(raw_entries))
 
     def _share_object(self, pld, is_trc):
@@ -171,61 +170,65 @@ class CertServer(SCIONElement):
         else:
             logging.warning("Reply not sent: no destination found")
 
-    def process_cert_chain_request(self, req, meta):
+    # def process_cert_chain_request(self, req, meta):
+    #     """Process a certificate chain request."""
+    #     assert isinstance(req, CertChainRequest)
+    #     key = req.isd_as(), req.p.version
+    #     logging.info("Cert chain request received for %sv%s", *key)
+    #     local = meta.ia == self.addr.isd_as
+    #     if not self._check_cc(key) and not local:
+    #         logging.warning(
+    #             "Dropping CC request from %s for %sv%s: "
+    #             "CC not found && requester is not local)",
+    #             meta.get_addr(), *key)
+    #     if req.p.cacheOnly:
+    #         self._reply_cc(key, meta)
+    #         return
+    #     self.cc_requests.put((key, meta))
+
+    def process_cert_chains_request(self, reqs, meta):
         """Process a certificate chain request."""
-        assert isinstance(req, CertChainRequest)
-        key = req.isd_as(), req.p.version
-        logging.info("Cert chain request received for %sv%s", *key)
-        local = meta.ia == self.addr.isd_as
-        if not self._check_cc(key) and not local:
-            logging.warning(
-                "Dropping CC request from %s for %sv%s: "
-                "CC not found && requester is not local)",
-                meta.get_addr(), *key)
-        if req.p.cacheOnly:
-            self._reply_cc(key, meta)
-            return
-        self.cc_requests.put((key, meta))
+        assert isinstance(reqs, CertChainsRequest)
 
-    def process_cert_chain_reply(self, rep, meta, from_zk=False):
+        certs = []
+        for isd_as, ver in reqs.iter_reqs():
+            # key = req.isd_as(), req.p.version
+            logging.info("Cert chain request received for %sv%s" % (isd_as, ver))
+            local = meta.ia == self.addr.isd_as
+            cert = self.trust_store.get_cert(isd_as, ver)
+            if not cert and not local:
+                logging.warning(
+                    "Dropping CC request from %s for %sv%s: "
+                    "CC not found && requester is not local)",
+                    meta.get_addr(), isd_as, ver)
+            elif cert:
+                certs.append(cert)
+        if certs:
+            self.send_meta(CertChainsReply.from_values(certs), meta)
+
+    # def process_cert_chain_reply(self, rep, meta, from_zk=False):
+    #     """Process a certificate chain reply."""
+    #     assert isinstance(rep, CertChainReply)
+    #     ia_ver = rep.chain.get_leaf_isd_as_ver()
+    #     logging.info("Cert chain reply received for %sv%s (ZK: %s)" %
+    #                  (ia_ver[0], ia_ver[1], from_zk))
+    #     self.trust_store.add_cert(rep.chain)
+    #     if not from_zk:
+    #         self._share_object(rep.chain, is_trc=False)
+    #     # Reply to all requests for this certificate chain
+    #     self.cc_requests.put((ia_ver, None))
+    
+    def process_cert_chains_reply(self, reps, meta, from_zk=False):
         """Process a certificate chain reply."""
-        assert isinstance(rep, CertChainReply)
-        ia_ver = rep.chain.get_leaf_isd_as_ver()
-        logging.info("Cert chain reply received for %sv%s (ZK: %s)" %
-                     (ia_ver[0], ia_ver[1], from_zk))
-        self.trust_store.add_cert(rep.chain)
-        if not from_zk:
-            self._share_object(rep.chain, is_trc=False)
-        # Reply to all requests for this certificate chain
-        self.cc_requests.put((ia_ver, None))
-
-    def _check_cc(self, key):
-        cert_chain = self.trust_store.get_cert(*key)
-        if cert_chain:
-            return True
-        logging.debug('Cert chain not found for %sv%s', *key)
-        return False
-
-    def _fetch_cc(self, key, _):
-        isd_as, ver = key
-        req = CertChainRequest.from_values(isd_as, ver)
-        dst_addr, port = self._get_next_hop(isd_as, True)
-        req_pkt = self._build_packet(SVCType.CS_A, dst_ia=isd_as, payload=req)
-        if dst_addr:
-            self.send(req_pkt, dst_addr, port)
-            logging.info("Cert chain request sent: %s", req.short_desc())
-        else:
-            logging.warning("Cert chain request (for %s) not sent: "
-                            "no destination found", req.short_desc())
-
-    def _reply_cc(self, key, meta):
-        isd_as, ver = key
-        dst = meta.get_addr()
-        port = meta.port
-        cert_chain = self.trust_store.get_cert(isd_as, ver)
-        self._send_reply(dst, port, CertChainReply.from_values(cert_chain))
-        logging.info("Cert chain for %sv%s sent to %s:%s",
-                     isd_as, ver, dst, port)
+        assert isinstance(reps, CertChainsReply)
+        for rep_ in reps.iter_chains():
+            rep = CertChainReply.from_values(rep_)
+            ia_ver = rep.chain.get_leaf_isd_as_ver()
+            logging.info("Cert chain reply received for %sv%s (ZK: %s)" %
+                        (ia_ver[0], ia_ver[1], from_zk))
+            self.trust_store.add_cert(rep.chain)
+            if not from_zk:
+                self._share_object(rep.chain, is_trc=False)
 
     def process_trc_request(self, req, meta):
         """Process a TRC request."""
@@ -289,6 +292,15 @@ class CertServer(SCIONElement):
         self._send_reply(dst, port, TRCReply.from_values(trc))
         logging.info("TRC for %sv%s sent to %s:%s", isd, ver, dst, port)
 
+    def run(self):
+        """
+        Run an instance of the Cert Server.
+        """
+        threading.Thread(
+            target=thread_safety_net, args=(self.worker,),
+            name="CS.worker", daemon=True).start()
+        super().run()
+
     def _get_next_hop(self, isd_as, parent=False, child=False, core=False):
         routers = []
         if parent:
@@ -302,16 +314,6 @@ class CertServer(SCIONElement):
             if (isd_as == r_ia) or (isd_as[0] == r_ia[0] and isd_as[1] == 0):
                 return r.addr, r.port
         return None, None
-
-    def run(self):
-        """
-        Run an instance of the Cert Server.
-        """
-        threading.Thread(
-            target=thread_safety_net, args=(self.worker,),
-            name="CS.worker", daemon=True).start()
-        super().run()
-
 
 if __name__ == "__main__":
     main_wrapper(main_default, CertServer)

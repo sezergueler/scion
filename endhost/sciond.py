@@ -113,8 +113,8 @@ class SCIONDaemon(SCIONElement):
                 PMT.REVOCATION: self.handle_revocation,
             },
             PayloadClass.CERT: {
-                CertMgmtType.CERT_CHAIN_REQ: self.process_cert_chain_request,
-                CertMgmtType.CERT_CHAIN_REPLY: self.process_cert_chain_reply,
+                CertMgmtType.CERT_CHAINS_REQ: self.process_cert_chains_request,
+                CertMgmtType.CERT_CHAINS_REPLY: self.process_cert_chains_reply,
                 CertMgmtType.TRC_REPLY: self.process_trc_reply,
                 CertMgmtType.TRC_REQ: self.process_trc_request,
             },

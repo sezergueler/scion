@@ -59,6 +59,8 @@ from lib.msg_meta import (
 from lib.packet.cert_mgmt import (
     CertChainReply,
     CertChainRequest,
+    CertChainsReply,
+    CertChainsRequest,
     TRCReply,
     TRCRequest,
 )
@@ -345,6 +347,7 @@ class SCIONElement(object):
             missing_certs = seg_meta.missing_certs.copy()
         if not missing_certs:
             return
+        certs_req = []
         for isd_as, ver in missing_certs:
             with self.req_certs_lock:
                 if (isd_as, ver) in self.requested_certs:
@@ -352,12 +355,20 @@ class SCIONElement(object):
                 self.requested_certs.add((isd_as, ver))
             cert_req = CertChainRequest.from_values(isd_as, ver)
             logging.info("Requesting %sv%s CERTCHAIN", isd_as, ver)
-            if not seg_meta.meta:
-                meta = self.get_cs()
-                if meta:
-                    self.send_meta(cert_req, meta)
-            else:
-                self.send_meta(cert_req, seg_meta.meta)
+            certs_req.append((isd_as, ver))
+            # if not seg_meta.meta:
+            #     meta = self.get_cs()
+            #     if meta:
+            #         self.send_meta(cert_req, meta)
+            # else:
+            #     self.send_meta(cert_req, seg_meta.meta)
+        certs_req = CertChainsRequest.from_values(certs_req)
+        if not seg_meta.meta:
+            meta = self.get_cs()
+            if meta:
+                self.send_meta(certs_req, meta)
+        else:
+            self.send_meta(certs_req, seg_meta.meta)
 
     def _missing_trc_versions(self, trc_versions):
         """
@@ -448,22 +459,41 @@ class SCIONElement(object):
         else:
             logging.warning("Could not find requested TRC %sv%s" % (isd, ver))
 
-    def process_cert_chain_reply(self, rep, meta):
+    # def process_cert_chain_reply(self, rep, meta):
+    #     """Process a certificate chain reply."""
+    #     assert isinstance(rep, CertChainReply)
+    #     meta.close()
+    #     isd_as, ver = rep.chain.get_leaf_isd_as_ver()
+    #     logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
+    #     self.trust_store.add_cert(rep.chain, True)
+    #     with self.req_certs_lock:
+    #         self.requested_certs.discard((isd_as, ver))
+    #     # Send cc to CS
+    #     if meta.get_addr().isd_as != self.addr.isd_as:
+    #         cs_meta = self.get_cs()
+    #         self.send_meta(rep, cs_meta)
+    #         cs_meta.close()
+    #     # Remove received cert chain from map
+    #     self._check_segs_with_rec_cert(isd_as, ver)
+
+    def process_cert_chains_reply(self, reps, meta):
         """Process a certificate chain reply."""
-        assert isinstance(rep, CertChainReply)
+        assert isinstance(reps, CertChainsReply)
         meta.close()
-        isd_as, ver = rep.chain.get_leaf_isd_as_ver()
-        logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
-        self.trust_store.add_cert(rep.chain, True)
-        with self.req_certs_lock:
-            self.requested_certs.discard((isd_as, ver))
+        for rep_ in reps.iter_chains():
+            rep = CertChainReply.from_values(rep_)
+            isd_as, ver = rep.chain.get_leaf_isd_as_ver()
+            logging.info("Cert chain reply received for %sv%s" % (isd_as, ver))
+            self.trust_store.add_cert(rep.chain, True)
+            with self.req_certs_lock:
+                self.requested_certs.discard((isd_as, ver))
+            # Remove received cert chain from map
+            self._check_segs_with_rec_cert(isd_as, ver)
         # Send cc to CS
         if meta.get_addr().isd_as != self.addr.isd_as:
             cs_meta = self.get_cs()
-            self.send_meta(rep, cs_meta)
+            self.send_meta(reps, cs_meta)
             cs_meta.close()
-        # Remove received cert chain from map
-        self._check_segs_with_rec_cert(isd_as, ver)
 
     def _check_segs_with_rec_cert(self, isd_as, ver):
         """
@@ -479,17 +509,32 @@ class SCIONElement(object):
                 if seg_meta.verifiable():
                     self._try_to_verify_seg(seg_meta)
 
-    def process_cert_chain_request(self, req, meta):
+    # def process_cert_chain_request(self, req, meta):
+    #     """Process a certificate chain request."""
+    #     assert isinstance(req, CertChainRequest)
+    #     isd_as, ver = req.isd_as(), req.p.version
+    #     logging.info("Cert chain request received for %sv%s" % (isd_as, ver))
+    #     cert = self.trust_store.get_cert(isd_as, ver)
+    #     if cert:
+    #         self.send_meta(CertChainReply.from_values(cert), meta)
+    #     else:
+    #         logging.warning("Could not find requested certificate %sv%s" %
+    #                         (isd_as, ver))
+
+    def process_cert_chains_request(self, reqs, meta):
         """Process a certificate chain request."""
-        assert isinstance(req, CertChainRequest)
-        isd_as, ver = req.isd_as(), req.p.version
-        logging.info("Cert chain request received for %sv%s" % (isd_as, ver))
-        cert = self.trust_store.get_cert(isd_as, ver)
-        if cert:
-            self.send_meta(CertChainReply.from_values(cert), meta)
-        else:
-            logging.warning("Could not find requested certificate %sv%s" %
-                            (isd_as, ver))
+        assert isinstance(reqs, CertChainsRequest)
+        certs = []
+        for isd_as, ver in reqs.iter_reqs():
+            # isd_as, ver = req.isd_as(), req.p.version
+            logging.info("Cert chain request received for %sv%s" % (isd_as, ver))
+            cert = self.trust_store.get_cert(isd_as, ver)
+            if cert:
+                certs.append(cert)
+            else:
+                logging.warning("Could not find requested certificate %sv%s" %
+                                (isd_as, ver))
+        self.send_meta(CertChainsReply.from_values(certs), meta)
 
     def _verify_path_seg(self, seg_meta):
         """

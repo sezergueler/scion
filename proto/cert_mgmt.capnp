@@ -13,6 +13,14 @@ struct CertChainRep {
     chain @0 :Data;
 }
 
+struct CertChainsReq {
+    chains @0 :List(CertChainReq);
+}
+
+struct CertChainsRep {
+    chains @0 :List(Data);
+}
+
 struct TRCReq {
     isdas @0 :UInt32;
     version @1 :UInt32;
@@ -30,5 +38,7 @@ struct CertMgmt {
         certChainRep @2 :CertChainRep;
         trcReq @3 :TRCReq;
         trcRep @4 :TRCRep;
+        certChainsReq @5 :CertChainsReq;
+        certChainsRep @6 :CertChainsRep;
     }
 }
